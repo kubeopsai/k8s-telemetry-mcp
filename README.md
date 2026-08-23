@@ -131,15 +131,20 @@ If the pod exits immediately, the license check failed. Common causes:
 - The EKS node's IAM role does not have `aws-marketplace:RegisterUsage` permission
 - The pod cannot reach the AWS License Manager endpoint (check your NetworkPolicy or VPC routing)
 
-To grant the required IAM permission, attach this policy to your EKS node role:
+To grant the required IAM permissions, attach this policy to your EKS node role:
 
 ```json
 {
   "Effect": "Allow",
-  "Action": "aws-marketplace:RegisterUsage",
+  "Action": [
+    "aws-marketplace:RegisterUsage",
+    "marketplace-entitlement:GetEntitlements"
+  ],
   "Resource": "*"
 }
 ```
+
+Both permissions are required. `RegisterUsage` records metering for billing. `GetEntitlements` verifies your active subscription tier at startup — if it is missing, the server falls back to the configured `MCP_MARKETPLACE_TIER` value with a warning.
 
 ---
 
@@ -595,9 +600,9 @@ This product is available on AWS Marketplace as a container product.
 
 | Tier | Price | Features |
 |------|-------|----------|
-| Standard | $99/month | Up to 3 namespaces |
-| Professional | $299/month | Unlimited namespaces, priority support |
-| Enterprise | $499/month | Custom sanitization rules, dedicated support |
+| Standard | $29/month | 1 namespace, 100 log lines, 8 core tools |
+| Professional | $99/month | Unlimited namespaces, 500 log lines, all 12 tools |
+| Enterprise | $299/month | Unlimited namespaces, 5000 log lines, 72h query range, all 12 tools |
 
 ---
 

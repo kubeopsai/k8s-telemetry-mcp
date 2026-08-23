@@ -80,9 +80,9 @@ DEPLOYMENT:
 
 | Dimension | Price | Description |
 |-----------|-------|-------------|
-| Standard | $99/month | Per AWS account, up to 3 namespaces |
-| Professional | $299/month | Per AWS account, unlimited namespaces |
-| Enterprise | $499/month | Per AWS account, custom rules + support |
+| Standard | $29/month | Per AWS account, 1 namespace, 100 log lines, 8 core tools |
+| Professional | $99/month | Per AWS account, unlimited namespaces, 500 log lines, all 12 tools |
+| Enterprise | $299/month | Per AWS account, unlimited namespaces, 5000 log lines, 72h query range, all 12 tools |
 
 ## Step 3: Technical Requirements
 
@@ -95,6 +95,7 @@ DEPLOYMENT:
 - [x] Minimal base image (python:3.11-slim)
 - [x] Periodic metering via `RegisterUsage` (every hour, not just startup)
 - [x] `RegisterUsage` response signature verified
+- [x] Entitlement tier verified via `GetEntitlements` on startup (authoritative tier overrides env var)
 - [x] License check cannot be disabled at runtime (`MCP_LOCAL_DEV` is for dev only)
 
 ### Helm Chart Requirements
@@ -103,8 +104,8 @@ DEPLOYMENT:
 - [x] ServiceAccount with minimal permissions
 - [x] SecurityContext with least-privilege
 - [x] Resource limits defined
-- [x] NetworkPolicy included (port 443 egress for Marketplace Metering Service)
-- [x] Tier enforcement (Standard: 3 namespaces, Professional/Enterprise: unlimited)
+- [x] NetworkPolicy included (port 443 egress for Marketplace Metering + Entitlement Service)
+- [x] Tier enforcement (Standard: 1 namespace/100 lines/8 tools, Professional/Enterprise: unlimited)
 
 ## Step 4: Submit for Review
 

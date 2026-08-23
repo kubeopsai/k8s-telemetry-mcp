@@ -70,7 +70,7 @@ If you purchased from AWS Marketplace:
 ```yaml
 image:
   repository: 123456789012.dkr.ecr.us-east-1.amazonaws.com/k8s-telemetry-mcp
-  tag: "1.0.0"
+  tag: "1.0.3"
 
 imagePullSecrets:
   - name: aws-marketplace-secret
@@ -81,7 +81,23 @@ extraEnv:
     value: "<YOUR_PRODUCT_CODE>"
   - name: MCP_MARKETPLACE_TIER
     value: "professional"  # standard | professional | enterprise
+                           # Note: the server verifies this against your actual
+                           # entitlement via GetEntitlements and uses the purchased
+                           # tier if they differ.
 ```
+
+> **Required IAM permissions** — attach both actions to your EKS node role:
+>
+> ```json
+> {
+>   "Effect": "Allow",
+>   "Action": [
+>     "aws-marketplace:RegisterUsage",
+>     "marketplace-entitlement:GetEntitlements"
+>   ],
+>   "Resource": "*"
+> }
+> ```
 
 ### Resource Limits
 
