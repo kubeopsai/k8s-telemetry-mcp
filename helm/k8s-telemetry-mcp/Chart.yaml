@@ -1,0 +1,20 @@
+apiVersion: v2
+name: k8s-telemetry-mcp
+description: Kubernetes Telemetry MCP Server - Connect LLMs to your cluster's observability stack
+type: application
+version: 1.0.1
+appVersion: "1.0.1"
+keywords:
+  - mcp
+  - kubernetes
+  - observability
+  - loki
+  - prometheus
+  - tempo
+  - llm
+  - ai
+  - bedrock
+home: https://github.com/kubeopsai/k8s-telemetry-mcp
+maintainers:
+  - name: KubeOpsAI Team
+    email: kubeopsai@gmail.com

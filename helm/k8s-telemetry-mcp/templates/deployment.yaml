@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "k8s-telemetry-mcp.fullname" . }}
+  labels:
+    {{- include "k8s-telemetry-mcp.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "k8s-telemetry-mcp.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "k8s-telemetry-mcp.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "k8s-telemetry-mcp.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: MCP_LOKI_URL
+              value: {{ .Values.config.lokiUrl | quote }}
+            - name: MCP_LOKI_TIMEOUT
+              value: {{ .Values.config.lokiTimeout | quote }}
+            - name: MCP_PROMETHEUS_URL
+              value: {{ .Values.config.prometheusUrl | quote }}
+            - name: MCP_PROMETHEUS_TIMEOUT
+              value: {{ .Values.config.prometheusTimeout | quote }}
+            - name: MCP_TEMPO_URL
+              value: {{ .Values.config.tempoUrl | quote }}
+            - name: MCP_TEMPO_TIMEOUT
+              value: {{ .Values.config.tempoTimeout | quote }}
+            - name: MCP_ENABLE_SANITIZATION
+              value: {{ .Values.config.enableSanitization | quote }}
+            - name: MCP_MAX_LOG_LINES
+              value: {{ .Values.config.maxLogLines | quote }}
+            - name: MCP_MAX_QUERY_RANGE_HOURS
+              value: {{ .Values.config.maxQueryRangeHours | quote }}
+            - name: MCP_LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            - name: MCP_AWS_MARKETPLACE_PRODUCT_CODE
+              value: {{ .Values.config.marketplaceProductCode | quote }}
+            - name: MCP_MARKETPLACE_TIER
+              value: {{ .Values.config.marketplaceTier | quote }}
+            - name: MCP_LOCAL_DEV
+              value: "false"
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import importlib.util; assert importlib.util.find_spec('src') is not None"
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import importlib.util; assert importlib.util.find_spec('src') is not None"
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,51 @@
+Thank you for installing {{ .Chart.Name }}!
+
+K8s Telemetry MCP Server is now deployed to your cluster.
+
+## Verify Installation
+
+Check the deployment status:
+  kubectl get pods -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "k8s-telemetry-mcp.name" . }}
+
+View logs:
+  kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/name={{ include "k8s-telemetry-mcp.name" . }}
+
+## Connect Your AI Assistant
+
+Add to your MCP client configuration:
+
+{
+  "mcpServers": {
+    "k8s-telemetry": {
+      "command": "kubectl",
+      "args": ["exec", "-i", "-n", "{{ .Release.Namespace }}", "deploy/{{ include "k8s-telemetry-mcp.fullname" . }}", "--", "k8s-telemetry-mcp"]
+    }
+  }
+}
+
+## Available Tools (12 total)
+
+Log tools (Loki):
+- query_pod_logs        - Query logs by pod name and namespace
+- query_logs_custom     - Execute raw LogQL queries
+
+Metrics tools (Prometheus):
+- get_pod_metrics       - Pod CPU, memory, restarts, network
+- query_prometheus      - Execute raw PromQL queries (instant or range)
+- get_cluster_health    - Cluster-wide node and pod health
+
+Trace tools (Tempo):
+- get_trace             - Retrieve a full trace by ID
+- search_traces         - Search traces by service, tags, duration
+
+Analytics tools:
+- analyze_logs          - Pattern detection and error categorization
+- build_incident_timeline - Correlated logs/metrics/traces timeline
+- enrich_alert          - Full context gathering when an alert fires
+- get_resource_costs    - Cost attribution by namespace
+- check_slo_status      - SLO compliance, error budget, burn rate
+
+## Support
+
+Documentation: https://docs.k8s-telemetry-mcp.io
+Issues: https://github.com/k8s-telemetry-mcp/k8s-telemetry-mcp/issues
