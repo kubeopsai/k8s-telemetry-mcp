@@ -73,7 +73,11 @@ config:
   # Set to your product code from the AWS Marketplace Management Portal.
   # Required for all production deployments — license check cannot be disabled at runtime.
   marketplaceProductCode: ""
-  # Tier controls namespace access limits: standard (3 namespaces) | professional | enterprise
+  # Tier controls feature access. The server verifies this against your actual entitlement
+  # via GetEntitlements and uses the purchased tier if they differ.
+  # standard: 1 namespace, 100 log lines, 8 core tools
+  # professional: unlimited namespaces, 500 log lines, all 12 tools
+  # enterprise: unlimited namespaces, 5000 log lines, 72h query range, all 12 tools
   marketplaceTier: "professional"
 
 # Resource limits
