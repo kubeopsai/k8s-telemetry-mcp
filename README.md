@@ -647,6 +647,14 @@ docker build -t k8s-telemetry-mcp:latest .
 
 ## Support
 
+| Tier | First Response | Target Resolution |
+|------|---------------|-------------------|
+| **Standard** ($29/mo) | 5 business days | Best effort |
+| **Professional** ($99/mo) | 2 business days | 5 business days |
+| **Enterprise** ($299/mo) | 1 business day | 3 business days |
+
+Business hours: Monday–Friday, 09:00–18:00 CET. Full details at [wiki/Support](https://github.com/kubeopsai/k8s-telemetry-mcp/wiki/Support).
+
 - **Documentation**: https://github.com/kubeopsai/k8s-telemetry-mcp/wiki
 - **Issues**: https://github.com/kubeopsai/k8s-telemetry-mcp/issues
 - **Email**: kubeopsai@gmail.com
