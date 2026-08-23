@@ -8,7 +8,7 @@ image:
   # Format: <AWS_ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/k8s-telemetry-mcp
   # Example: 123456789012.dkr.ecr.us-east-1.amazonaws.com/k8s-telemetry-mcp
   repository: <AWS_ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/k8s-telemetry-mcp
-  tag: "1.1.0"
+  tag: "1.1.1"
   pullPolicy: IfNotPresent
 
 # Image pull secrets for AWS ECR
