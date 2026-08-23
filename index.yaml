@@ -3,10 +3,10 @@ entries:
   k8s-telemetry-mcp:
   - apiVersion: v2
     appVersion: 1.1.0
-    created: "2026-08-23T15:36:33.788625346Z"
+    created: "2026-08-23T15:40:52.50200608Z"
     description: Kubernetes Telemetry MCP Server - Connect LLMs to your cluster's
       observability stack
-    digest: e7a6a936e55aaf3816c2761868e93249581a85d9c693b480eb32ed21ec57ce8a
+    digest: 0481bcf9cef52f9d62ff996a7858446ee4a60b5c233c0bd5965819ab80f0dfa0
     home: https://github.com/kubeopsai/k8s-telemetry-mcp
     keywords:
     - mcp
@@ -76,4 +76,4 @@ entries:
     urls:
     - https://kubeopsai.github.io/k8s-telemetry-mcp/k8s-telemetry-mcp-1.0.1.tgz
     version: 1.0.1
-generated: "2026-08-23T15:36:33.787982554Z"
+generated: "2026-08-23T15:40:52.501331434Z"
