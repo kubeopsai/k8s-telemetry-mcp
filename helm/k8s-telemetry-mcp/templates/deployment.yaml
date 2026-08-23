@@ -68,6 +68,12 @@ spec:
               value: {{ .Values.config.marketplaceTier | quote }}
             - name: MCP_LOCAL_DEV
               value: "false"
+            {{- if .Values.config.alertmanagerUrl }}
+            - name: MCP_ALERTMANAGER_URL
+              value: {{ .Values.config.alertmanagerUrl | quote }}
+            {{- end }}
+            - name: MCP_AWS_REGION
+              value: {{ .Values.config.awsRegion | default "us-east-1" | quote }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           livenessProbe:

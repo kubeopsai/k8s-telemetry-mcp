@@ -8,7 +8,7 @@ image:
   # Format: <AWS_ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/k8s-telemetry-mcp
   # Example: 123456789012.dkr.ecr.us-east-1.amazonaws.com/k8s-telemetry-mcp
   repository: <AWS_ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/k8s-telemetry-mcp
-  tag: "1.0.2"
+  tag: "1.1.0"
   pullPolicy: IfNotPresent
 
 # Image pull secrets for AWS ECR
@@ -61,6 +61,12 @@ config:
   cloudwatchLogGroup: ""   # e.g. /aws/containerinsights/my-cluster/application
   cloudwatchRegion: ""     # e.g. us-east-1
 
+  # Alertmanager (optional — required for get_alertmanager_history)
+  alertmanagerUrl: ""  # e.g. http://alertmanager.monitoring:9093
+
+  # AWS region for CloudTrail, Config, ECR, RDS, ElastiCache tools
+  awsRegion: "us-east-1"
+
   # Security settings
   enableSanitization: true
   maxLogLines: 500
@@ -75,9 +81,9 @@ config:
   marketplaceProductCode: ""
   # Tier controls feature access. The server verifies this against your actual entitlement
   # via GetEntitlements and uses the purchased tier if they differ.
-  # standard: 1 namespace, 100 log lines, 8 core tools
-  # professional: unlimited namespaces, 500 log lines, all 12 tools
-  # enterprise: unlimited namespaces, 5000 log lines, 72h query range, all 12 tools
+  # standard:     1 namespace, 100 log lines, 8 core tools + get_k8s_events
+  # professional: unlimited namespaces, 500 log lines, all tools except Enterprise-only
+  # enterprise:   unlimited namespaces, 5000 log lines, 72h range, all 23 tools
   marketplaceTier: "professional"
 
 # Resource limits
@@ -97,6 +103,17 @@ tolerations: []
 
 # Affinity
 affinity: {}
+
+# RBAC — required for Kubernetes API tools:
+#   get_k8s_events, get_scaling_history, get_node_pressure, get_recent_deployments
+#
+# When enabled, creates a ClusterRole with read-only access to:
+#   events, nodes, deployments, replicasets, horizontalpodautoscalers
+#
+# Set to false only if you do not need the Kubernetes API tools and want
+# the strictest possible least-privilege posture.
+rbac:
+  enabled: true
 
 # Network Policy
 networkPolicy:

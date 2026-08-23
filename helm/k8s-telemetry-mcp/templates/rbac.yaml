@@ -1,0 +1,43 @@
+{{- if .Values.rbac.enabled }}
+# ClusterRole granting read-only access to Kubernetes resources needed by:
+#   get_k8s_events       — events (all namespaces)
+#   get_scaling_history  — horizontalpodautoscalers
+#   get_node_pressure    — nodes
+#   get_recent_deployments — deployments, replicasets
+#
+# IMPORTANT: This ClusterRole is required for the Kubernetes tools to function.
+# Without it, get_k8s_events, get_scaling_history, get_node_pressure, and
+# get_recent_deployments will return permission errors.
+# Set rbac.enabled=true in values.yaml to create these resources.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "k8s-telemetry-mcp.fullname" . }}
+  labels:
+    {{- include "k8s-telemetry-mcp.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["events", "nodes"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "k8s-telemetry-mcp.fullname" . }}
+  labels:
+    {{- include "k8s-telemetry-mcp.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "k8s-telemetry-mcp.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "k8s-telemetry-mcp.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
