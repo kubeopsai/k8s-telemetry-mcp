@@ -7,7 +7,7 @@ image:
   # Replace with your actual ECR URI after pushing to AWS Marketplace ECR.
   # Format: <AWS_ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/k8s-telemetry-mcp
   # Example: 123456789012.dkr.ecr.us-east-1.amazonaws.com/k8s-telemetry-mcp
-  repository: 257925263994.dkr.ecr.eu-central-1.amazonaws.com/k8s-telemetry-mcp
+  repository: <AWS_ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/k8s-telemetry-mcp
   tag: "1.0.1"
   pullPolicy: IfNotPresent
 
