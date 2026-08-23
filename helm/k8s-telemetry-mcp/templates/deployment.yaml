@@ -40,6 +40,20 @@ spec:
               value: {{ .Values.config.tempoUrl | quote }}
             - name: MCP_TEMPO_TIMEOUT
               value: {{ .Values.config.tempoTimeout | quote }}
+            {{- if .Values.config.datadogApiKey }}
+            - name: MCP_DATADOG_API_KEY
+              value: {{ .Values.config.datadogApiKey | quote }}
+            - name: MCP_DATADOG_APP_KEY
+              value: {{ .Values.config.datadogAppKey | quote }}
+            - name: MCP_DATADOG_SITE
+              value: {{ .Values.config.datadogSite | default "datadoghq.com" | quote }}
+            {{- end }}
+            {{- if .Values.config.cloudwatchLogGroup }}
+            - name: MCP_CLOUDWATCH_LOG_GROUP
+              value: {{ .Values.config.cloudwatchLogGroup | quote }}
+            - name: MCP_CLOUDWATCH_REGION
+              value: {{ .Values.config.cloudwatchRegion | quote }}
+            {{- end }}
             - name: MCP_ENABLE_SANITIZATION
               value: {{ .Values.config.enableSanitization | quote }}
             - name: MCP_MAX_LOG_LINES

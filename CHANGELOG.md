@@ -5,7 +5,29 @@ All notable changes to K8s Telemetry MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.0.1] - 2026-08-23
+## [1.0.2] - 2026-08-23
+
+### Added
+- **Multi-backend support** — Datadog and CloudWatch backends auto-detected from environment variables. Set `MCP_DATADOG_API_KEY` for Datadog or `MCP_CLOUDWATCH_LOG_GROUP` for CloudWatch. Loki/Prometheus/Tempo remain the default.
+- `src/tools/datadog.py` — Datadog Logs v2 and Metrics v1 client with PII sanitization
+- `src/tools/cloudwatch.py` — CloudWatch Logs Insights and Container Insights client
+- **Real tier differentiation** across all three tiers:
+  - Standard ($29/mo): 1 namespace, 100 log lines max, core 8 tools only
+  - Professional ($99/mo): unlimited namespaces, all 12 tools, 500 log lines, 24h range
+  - Enterprise ($299/mo): unlimited namespaces, all 12 tools, 5000 log lines, 72h range
+- `check_tool()` method on `TierEnforcer` — blocks analytics tools on Standard tier
+- `max_log_lines` and `max_query_range_hours` properties on `TierEnforcer`
+- `query_prometheus` and `get_resource_costs` return clear error when non-Prometheus backend is active
+- `check_slo_status` returns clear error when non-Prometheus backend is active
+- 33 new tests covering Datadog client, CloudWatch client, and tier differentiation
+
+### Changed
+- Server version bumped to `1.0.2`
+- Backend clients initialized lazily via `_detect_backends()` at startup — no longer module-level globals
+- `query_logs_custom` routes to `query_raw()` if backend supports it (Datadog/CloudWatch), otherwise falls back to `query_logs()`
+- `build_incident_timeline` and `enrich_alert` gracefully skip traces if no trace backend configured
+- Pricing updated: Standard $29/mo, Professional $99/mo, Enterprise $299/mo
+
 
 ### Fixed
 - `get_cluster_health` — PromQL queries used `count()` instead of `sum()` for pod phase metrics, causing all pods to appear as failed and pending
