@@ -192,7 +192,7 @@ Add the following snippet to your AI assistant's MCP configuration file, replaci
 }
 ```
 
-Restart your AI assistant after saving the config. It will discover all 12 tools automatically on next launch.
+Restart your AI assistant after saving the config. It will discover all 22 tools automatically on next launch.
 
 > **Note:** The user running the AI assistant must have `kubectl exec` permission on the `k8s-telemetry-mcp` deployment. This is controlled by your cluster's existing RBAC — no additional permissions are granted by this product.
 
@@ -207,12 +207,19 @@ Your AI assistant can now answer questions like:
 - *"Is the checkout service meeting its SLO this week?"*
 - *"What happened to the order service between 2pm and 3pm?"*
 - *"Which namespace is consuming the most resources?"*
+- *"Who deleted the payment-service deployment?"*
+- *"Why is my pod pending? Show me the Kubernetes events"*
+- *"Which ECR images have critical vulnerabilities?"*
+- *"What deployments went out in the last hour?"*
+- *"Is my RDS instance showing slow queries?"*
 
 ---
 
 ## Tools Reference
 
-The server exposes 12 tools across four categories. Your AI assistant selects and calls these automatically based on your question. You can also instruct it to use specific tools directly.
+The server exposes 22 tools across six categories. Your AI assistant selects and calls these automatically based on your question. You can also instruct it to use specific tools directly.
+
+> **Tier availability:** Standard tier includes core tools + `get_k8s_events`. Professional adds analytics, CloudTrail, ECR, RDS, HPA, node, alertmanager, and deployment tools. Enterprise adds `get_resource_history` and `get_resource_compliance`.
 
 ---
 
@@ -516,11 +523,16 @@ No other outbound connections are permitted.
 
 ### RBAC
 
-The server's Kubernetes service account has **no Kubernetes API permissions**. It communicates exclusively with the observability stack over HTTP. It cannot read secrets, list pods, or perform any cluster operations.
+By default (`rbac.enabled=true`), the Helm chart creates a ClusterRole granting read-only access to:
+- `events` and `nodes` (core API)
+- `deployments` and `replicasets` (apps)
+- `horizontalpodautoscalers` (autoscaling)
+
+This is required for `get_k8s_events`, `get_scaling_history`, `get_node_pressure`, and `get_recent_deployments`. Set `rbac.enabled=false` only if you do not need these tools and want the strictest possible least-privilege posture.
 
 ### Read-Only
 
-All 12 tools are read-only. There are no write, delete, or mutation operations of any kind.
+All 22 tools are read-only. There are no write, delete, or mutation operations of any kind.
 
 ---
 
@@ -536,6 +548,8 @@ All settings are configured via environment variables with the `MCP_` prefix.
 | `MCP_PROMETHEUS_TIMEOUT` | `30` | Prometheus request timeout in seconds |
 | `MCP_TEMPO_URL` | `http://tempo:3200` | Tempo endpoint |
 | `MCP_TEMPO_TIMEOUT` | `30` | Tempo request timeout in seconds |
+| `MCP_ALERTMANAGER_URL` | `` | Alertmanager endpoint (required for `get_alertmanager_history`) |
+| `MCP_AWS_REGION` | `us-east-1` | AWS region for CloudTrail, Config, ECR, RDS, ElastiCache tools |
 | `MCP_ENABLE_SANITIZATION` | `true` | Enable automatic PII and secret redaction |
 | `MCP_MAX_LOG_LINES` | `500` | Maximum log lines returned per query |
 | `MCP_MAX_QUERY_RANGE_HOURS` | `24` | Maximum time range allowed for any query |
@@ -553,7 +567,7 @@ Full reference for `values.yaml`:
 ```yaml
 image:
   repository: <AWS_ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/k8s-telemetry-mcp
-  tag: "1.0.0"
+  tag: "1.1.0"
 
 imagePullSecrets:
   - name: aws-marketplace-secret
@@ -568,11 +582,21 @@ config:
   prometheusUrl: "http://prometheus:9090"
   tempoUrl: "http://tempo:3200"
 
+  # Optional: Alertmanager (required for get_alertmanager_history)
+  alertmanagerUrl: "http://alertmanager:9093"
+
+  # AWS region for CloudTrail, Config, ECR, RDS, ElastiCache tools
+  awsRegion: "us-east-1"
+
   # Limits
   enableSanitization: true
   maxLogLines: 500
   maxQueryRangeHours: 24
   logLevel: "INFO"
+
+# RBAC — required for get_k8s_events, get_scaling_history, get_node_pressure, get_recent_deployments
+rbac:
+  enabled: true
 
 networkPolicy:
   enabled: true
@@ -600,9 +624,9 @@ This product is available on AWS Marketplace as a container product.
 
 | Tier | Price | Features |
 |------|-------|----------|
-| Standard | $29/month | 1 namespace, 100 log lines, 8 core tools |
-| Professional | $99/month | Unlimited namespaces, 500 log lines, all 12 tools |
-| Enterprise | $299/month | Unlimited namespaces, 5000 log lines, 72h query range, all 12 tools |
+| Standard | $29/month | 1 namespace, 100 log lines, 9 core tools |
+| Professional | $99/month | Unlimited namespaces, 500 log lines, 20 tools |
+| Enterprise | $299/month | Unlimited namespaces, 5000 log lines, 72h query range, all 22 tools |
 
 ---
 
