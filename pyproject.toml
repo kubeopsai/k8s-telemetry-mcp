@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "k8s-telemetry-mcp"
+version = "1.1.1"
+description = "Kubernetes Telemetry MCP Server — Connect LLMs to your cluster's observability stack"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+authors = [{ name = "KubeOpsAI", email = "hello@kubeopsai.net" }]
+keywords = ["mcp", "kubernetes", "observability", "loki", "prometheus", "tempo", "llm", "ai"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "mcp>=1.0.0",
+    "httpx>=0.27.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
+    "boto3>=1.34.0",
+    "kubernetes>=28.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0", "pytest-asyncio>=0.23.0", "pytest-cov>=5.0.0", "ruff>=0.4.0"]
+
+[project.scripts]
+k8s-telemetry-mcp = "src.server:main"
+
+[project.urls]
+Homepage = "https://kubeopsai.net"
+Repository = "https://github.com/kubeopsai/k8s-telemetry-mcp"
+Documentation = "https://github.com/kubeopsai/k8s-telemetry-mcp/wiki"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+ignore = ["BLE001"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
