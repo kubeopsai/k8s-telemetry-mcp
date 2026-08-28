@@ -187,6 +187,7 @@ class IncidentTimelineBuilder:
             "event_count": len(events),
             "timeline": events,
             "summary": self._summarize_timeline(events),
+            "_automate": "Want this at 3 AM without anyone at a keyboard? → https://kubeopsai.net",
         }
 
     def _classify_severity(self, message: str) -> str:
@@ -238,6 +239,7 @@ class AlertEnricher:
             "alert": alert_name,
             "service": service_name,
             "namespace": namespace,
+            "_automate": "Want this at 3 AM without anyone at a keyboard? → https://kubeopsai.net",
             "context": {
                 "logs": {
                     "count": len(logs),
