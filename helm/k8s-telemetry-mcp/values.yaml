@@ -4,14 +4,10 @@
 replicaCount: 1
 
 image:
-  # Replace with your actual ECR URI after pushing to AWS Marketplace ECR.
-  # Format: <AWS_ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/k8s-telemetry-mcp
-  # Example: 123456789012.dkr.ecr.us-east-1.amazonaws.com/k8s-telemetry-mcp
-  repository: <AWS_ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/k8s-telemetry-mcp
+  repository: ghcr.io/kubeopsai/k8s-telemetry-mcp
   tag: "1.1.1"
   pullPolicy: IfNotPresent
 
-# Image pull secrets for AWS ECR
 imagePullSecrets: []
 
 nameOverride: ""
@@ -74,17 +70,6 @@ config:
 
   # Logging
   logLevel: "INFO"
-
-  # AWS Marketplace License
-  # Set to your product code from the AWS Marketplace Management Portal.
-  # Required for all production deployments — license check cannot be disabled at runtime.
-  marketplaceProductCode: ""
-  # Tier controls feature access. The server verifies this against your actual entitlement
-  # via GetEntitlements and uses the purchased tier if they differ.
-  # standard:     1 namespace, 100 log lines, 8 core tools + get_k8s_events
-  # professional: unlimited namespaces, 500 log lines, all tools except Enterprise-only
-  # enterprise:   unlimited namespaces, 5000 log lines, 72h range, all 23 tools
-  marketplaceTier: "professional"
 
 # Resource limits
 resources:
