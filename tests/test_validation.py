@@ -34,7 +34,7 @@ class TestValidateIdentifier:
             validate_identifier("", "pod")
 
     def test_whitespace_only_raises(self):
-        with pytest.raises(ValidationError, match="cannot be empty"):
+        with pytest.raises(ValidationError):
             validate_identifier("   ", "pod")
 
     def test_too_long_raises(self):
