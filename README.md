@@ -44,6 +44,8 @@ helm install k8s-telemetry-mcp k8s-telemetry-mcp/k8s-telemetry-mcp \
 
 ### 2. Configure Your AI Assistant
 
+> **Prerequisites:** Your AI assistant runs `kubectl exec` locally. Ensure `kubectl` is in your `PATH` and your active kubeconfig context points to the cluster where the MCP server is installed.
+
 **Amazon Q Developer** — `~/.aws/amazonq/mcp.json`:
 
 ```json
