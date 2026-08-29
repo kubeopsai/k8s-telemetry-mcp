@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import Any
@@ -11,6 +12,8 @@ from botocore.exceptions import ClientError
 
 from k8s_telemetry_mcp.config import settings
 from k8s_telemetry_mcp.sanitizers import sanitize
+
+logger = logging.getLogger(__name__)
 
 
 def _sanitize_event(event: dict) -> dict:
@@ -36,8 +39,8 @@ def _sanitize_event(event: dict) -> dict:
             "arn": sanitize(str(identity.get("arn", ""))),
             "account_id": identity.get("accountId"),
         }
-    except Exception:  # noqa: S110 — CloudTrail event JSON may be malformed, skip gracefully
-        pass
+    except Exception as exc:  # CloudTrail event JSON may be malformed, skip gracefully
+        logger.debug("Failed to parse CloudTrail event detail: %s", exc)
 
 
 class CloudTrailClient:

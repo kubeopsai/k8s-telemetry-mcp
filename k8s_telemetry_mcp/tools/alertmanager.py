@@ -1,5 +1,6 @@
 """Prometheus Alertmanager client for alert history and silences."""
 
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -7,6 +8,8 @@ import httpx
 
 from k8s_telemetry_mcp.config import settings
 from k8s_telemetry_mcp.sanitizers import sanitize
+
+logger = logging.getLogger(__name__)
 
 
 class AlertmanagerClient:
@@ -61,8 +64,8 @@ class AlertmanagerClient:
                         alert_time = datetime.fromisoformat(starts_at)
                         if alert_time < cutoff:
                             continue
-                    except Exception:  # noqa: S110 — malformed timestamp, skip silently
-                        pass
+                except Exception as exc:
+                        logger.debug("Failed to parse alert timestamp: %s", exc)
 
                     filtered.append({
                         "alertname": labels.get("alertname"),
@@ -110,7 +113,8 @@ class AlertmanagerClient:
                     ]
                     results["active_silences"] = active_silences
                     results["silence_count"] = len(active_silences)
-                except Exception:
+                except Exception as exc:
+                    logger.debug("Failed to fetch Alertmanager silences: %s", exc)
                     results["active_silences"] = []
                     results["silence_count"] = 0
 

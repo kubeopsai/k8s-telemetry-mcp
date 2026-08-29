@@ -2,6 +2,9 @@
 
 These formatters turn raw API data into clean, structured text that engineers
 naturally want to copy-paste into Slack. This is the conversion funnel.
+
+Note: Output is returned to an AI assistant over stdio (MCP protocol), not rendered
+in a browser. XSS sanitization is not applicable here — all output is plain text/markdown.
 """
 
 from __future__ import annotations
