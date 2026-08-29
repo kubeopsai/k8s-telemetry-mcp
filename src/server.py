@@ -41,6 +41,15 @@ from src.tools import (
     SLOChecker,
     TempoClient,
 )
+from src.tools.format import (
+    fmt_analyze_logs,
+    fmt_build_incident_timeline,
+    fmt_check_slo_status,
+    fmt_enrich_alert,
+    fmt_get_resource_costs,
+    fmt_k8s_events,
+    fmt_recent_deployments,
+)
 from src.validation import ValidationError, validate_identifier, validate_query, validate_trace_id
 
 logger = setup_logging(log_level=settings.log_level, json_format=settings.log_level != "DEBUG")
@@ -357,7 +366,7 @@ async def analyze_logs(
         analysis = log_analyzer.analyze(logs)
         analysis.update({"service": service_name, "namespace": namespace, "timeframe_minutes": timeframe_minutes})
         audit.log_tool_call("analyze_logs", {"service_name": service_name}, True, (time.perf_counter() - t0) * 1000)
-        return json.dumps(analysis, indent=2, default=str)
+        return fmt_analyze_logs(analysis)
     except Exception as e:
         audit.log_tool_call("analyze_logs", {"service_name": service_name}, False, (time.perf_counter() - t0) * 1000, str(e))
         return _error_response(e, "analyze_logs")
@@ -389,7 +398,7 @@ async def build_incident_timeline(
         timeline = timeline_builder.build(logs, metrics, traces, service_name)
         timeline.update({"namespace": namespace, "timeframe_minutes": timeframe_minutes})
         audit.log_tool_call("build_incident_timeline", {"service_name": service_name}, True, (time.perf_counter() - t0) * 1000)
-        return json.dumps(timeline, indent=2, default=str)
+        return fmt_build_incident_timeline(timeline)
     except Exception as e:
         audit.log_tool_call("build_incident_timeline", {"service_name": service_name}, False, (time.perf_counter() - t0) * 1000, str(e))
         return _error_response(e, "build_incident_timeline")
@@ -429,7 +438,7 @@ async def enrich_alert(
         enriched = alert_enricher.enrich(alert_name, service_name, namespace, logs, metrics, traces)
         enriched["timeframe_minutes"] = timeframe_minutes
         audit.log_tool_call("enrich_alert", {"alert_name": alert_name}, True, (time.perf_counter() - t0) * 1000)
-        return json.dumps(enriched, indent=2, default=str)
+        return fmt_enrich_alert(enriched)
     except Exception as e:
         audit.log_tool_call("enrich_alert", {"alert_name": alert_name}, False, (time.perf_counter() - t0) * 1000, str(e))
         return _error_response(e, "enrich_alert")
@@ -466,7 +475,7 @@ async def get_resource_costs(
             "cost_disclaimer": "Cost estimates use approximate rates ($0.05/core-hour CPU, $0.01/GB-hour memory) for relative comparison only. Refer to AWS Cost Explorer for authoritative figures.",
         })
         audit.log_tool_call("get_resource_costs", {"namespace": namespace}, True, (time.perf_counter() - t0) * 1000)
-        return json.dumps(analysis, indent=2, default=str)
+        return fmt_get_resource_costs(analysis)
     except Exception as e:
         audit.log_tool_call("get_resource_costs", {"namespace": namespace}, False, (time.perf_counter() - t0) * 1000, str(e))
         return _error_response(e, "get_resource_costs")
@@ -515,7 +524,7 @@ async def check_slo_status(
         )
         result["namespace"] = namespace
         audit.log_tool_call("check_slo_status", {"service_name": service_name}, True, (time.perf_counter() - t0) * 1000)
-        return json.dumps(result, indent=2, default=str)
+        return fmt_check_slo_status(result)
     except Exception as e:
         audit.log_tool_call("check_slo_status", {"service_name": service_name}, False, (time.perf_counter() - t0) * 1000, str(e))
         return _error_response(e, "check_slo_status")
@@ -706,7 +715,7 @@ async def get_k8s_events(
             timeframe_minutes=_clamp_minutes(timeframe_minutes), limit=max(1, min(limit, 500)),
         )
         audit.log_tool_call("get_k8s_events", {"namespace": namespace}, True, (time.perf_counter() - t0) * 1000)
-        return json.dumps(result, indent=2, default=str)
+        return fmt_k8s_events(result)
     except Exception as e:
         audit.log_tool_call("get_k8s_events", {}, False, (time.perf_counter() - t0) * 1000, str(e))
         return _error_response(e, "get_k8s_events")
@@ -817,7 +826,7 @@ async def get_recent_deployments(
             namespace=namespace, timeframe_minutes=_clamp_minutes(timeframe_minutes),
         )
         audit.log_tool_call("get_recent_deployments", {"namespace": namespace}, True, (time.perf_counter() - t0) * 1000)
-        return json.dumps(result, indent=2, default=str)
+        return fmt_recent_deployments(result)
     except Exception as e:
         audit.log_tool_call("get_recent_deployments", {}, False, (time.perf_counter() - t0) * 1000, str(e))
         return _error_response(e, "get_recent_deployments")
