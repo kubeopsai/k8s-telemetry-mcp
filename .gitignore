@@ -54,3 +54,8 @@ mcp_e2e_test.py
 mcp_full_qa.py
 sample-app.yaml
 podname.txt
+debug_scaling.py
+e2e_gap_test.py
+e2e_live_test.py
+test-incidents.yaml
+test-traced-app.yaml
