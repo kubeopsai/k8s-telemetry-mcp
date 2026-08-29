@@ -44,7 +44,7 @@ class KubernetesClient:
         _load_k8s_config()
         self._core = k8s_client.CoreV1Api()
         self._apps = k8s_client.AppsV1Api()
-        self._autoscaling = k8s_client.AutoscalingV1Api()
+        self._autoscaling = k8s_client.AutoscalingV2Api()
 
     async def _run(self, fn, *args, **kwargs):
         loop = asyncio.get_event_loop()

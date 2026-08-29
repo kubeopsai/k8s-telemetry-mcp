@@ -26,10 +26,12 @@ class TempoClient:
             trace_id: The trace ID to retrieve
             
         Returns:
-            Trace data with spans
+            Trace data with spans, or a not-found message
         """
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.get(f"{self.base_url}/api/traces/{trace_id}")
+            if response.status_code == 404:
+                return {"trace_id": trace_id, "found": False, "message": f"Trace '{trace_id}' not found in Tempo."}
             response.raise_for_status()
             trace = response.json()
 
