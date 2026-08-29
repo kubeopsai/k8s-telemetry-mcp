@@ -186,20 +186,74 @@ MCP_LOCAL_DEV=true MCP_LOKI_URL=http://localhost:3100 MCP_PROMETHEUS_URL=http://
 
 ---
 
-## ⚡ Automated 3 AM Incident Response
+## ⚡ From Free Tool to 3 AM Hero
 
-This MCP server is great for **manual querying** from your AI assistant during business hours.
+### Tuesday 2:00 PM — The Free Win
 
-But what about when Alertmanager fires at 3 AM and nobody is at a keyboard?
+You're tracking down a staging issue. You type into Claude Desktop:
 
-**The Promtops Autonomous Slack Bot** hooks into your Alertmanager webhooks, automatically runs this diagnostic engine across all 22 tools, and posts a complete root-cause analysis to your Slack incident channel — before your on-call engineer opens their laptop.
+> *"Why did the checkout pod restart 10 minutes ago?"*
+
+Claude calls `get_k8s_events` and `query_pod_logs`. In seconds:
+
+> *"The pod was OOMKilled. It hit its 512Mi limit after processing a large JSON payload."*
+
+Fixed in 3 minutes. You would have spent 20 minutes tabbing between Lens, Grafana, and CloudWatch.
+
+---
+
+### Saturday 3:15 AM — The Pain
+
+PagerDuty fires. **High Latency — Payment Gateway.**
+
+You roll out of bed. VPN. Okta. AWS Console. Grafana. Loki. Prometheus. 25 minutes of manual digging to find that a bad database migration locked a table. You roll back the deployment. It's 4:30 AM. Sleep is gone.
+
+The tool that diagnosed your OOMKilled pod in 3 minutes on Tuesday had all the access it needed to find this too — it just needed someone at a keyboard to ask.
+
+---
+
+### Monday 9:00 AM — The Realization
+
+In the incident review, you remember Tuesday. You open the GitHub README and scroll to the bottom.
+
+**What if the tool ran itself when the alert fired?**
+
+That's exactly what [Promtops Agent](https://kubeopsai.net) does.
+
+---
+
+## 🤖 Promtops Agent — Automated Incident Response
+
+Promtops hooks into your Alertmanager webhooks. When an alert fires at 3 AM, it runs this diagnostic engine across all 22 tools and posts a complete root-cause analysis to your Slack incident channel — **before PagerDuty even wakes your engineer up.**
+
+> **Read-only by design.** The agent investigates and explains. Your engineer makes the call and runs the fix. This is exactly why security teams approve it in 5 minutes instead of 6 months.
+
+```
+Alerting fires at 3:14 AM
+        │
+        ▼
+  Promtops Agent
+  ├── get_k8s_events      → OOMKilled × 3 in 10 min
+  ├── query_pod_logs      → cache.put() called 12,000×/min
+  ├── get_recent_deployments → checkout-api v2.4.1 at 03:00 UTC
+  └── get_pod_metrics     → memory 180Mi → 512Mi limit
+        │
+        ▼
+  Slack #incidents at 3:15 AM
+  "Root cause: unbounded cache in v2.4.1.
+   Recommended action: rollback to v2.4.0."
+        │
+        ▼
+  Engineer wakes up to answer, not questions.
+  Back to sleep by 3:20 AM.
+```
 
 - Zero human interaction required
-- Runs inside your cluster (outbound-only, no new attack surface)
+- Runs inside your cluster — your data never leaves your VPC
 - Bring your own LLM key (AWS Bedrock, Anthropic, OpenAI)
 - $199/month on AWS Marketplace
 
-👉 **[Check out the Promtops Autonomous Slack Bot](https://kubeopsai.net)**
+👉 **[kubeopsai.net](https://kubeopsai.net)**
 
 ---
 
