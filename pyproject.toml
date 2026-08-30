@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "k8s-telemetry-mcp"
-version = "1.1.3"
+version = "1.2.0"
 description = "Kubernetes Telemetry MCP Server — Connect LLMs to your cluster's observability stack"
 readme = "README.md"
 license = "Apache-2.0"
@@ -31,7 +31,10 @@ dependencies = [
 dev = ["pytest>=8.0.0", "pytest-asyncio>=0.23.0", "pytest-cov>=5.0.0", "ruff>=0.4.0"]
 
 [project.scripts]
+# The MCP server itself — speaks over stdio, started per session by `kubectl exec`.
 k8s-telemetry-mcp = "k8s_telemetry_mcp.server:main"
+# Long-lived pod process that hosts those exec sessions and answers health probes.
+k8s-telemetry-mcp-host = "k8s_telemetry_mcp.keepalive:main"
 
 [project.urls]
 Homepage = "https://kubeopsai.net"
@@ -39,7 +42,7 @@ Repository = "https://github.com/kubeopsai/k8s-telemetry-mcp"
 Documentation = "https://github.com/kubeopsai/k8s-telemetry-mcp/wiki"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src", "k8s_telemetry_mcp"]
+packages = ["k8s_telemetry_mcp"]
 
 [tool.ruff]
 line-length = 120

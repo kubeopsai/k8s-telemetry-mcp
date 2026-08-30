@@ -64,7 +64,7 @@ class AlertmanagerClient:
                         alert_time = datetime.fromisoformat(starts_at)
                         if alert_time < cutoff:
                             continue
-                except Exception as exc:
+                    except Exception as exc:
                         logger.debug("Failed to parse alert timestamp: %s", exc)
 
                     filtered.append({

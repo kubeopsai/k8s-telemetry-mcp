@@ -1,13 +1,13 @@
 """Tests for all 22 MCP server tools."""
 
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import httpx
 import pytest
 
-import src.server as server_module
-from src.server import (
+import k8s_telemetry_mcp.server as server_module
+from k8s_telemetry_mcp.server import (
     analyze_logs,
     build_incident_timeline,
     check_slo_status,
@@ -31,7 +31,6 @@ from src.server import (
     query_prometheus,
     search_traces,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -110,7 +109,7 @@ class TestQueryLogsCustom:
         assert "error" not in json.loads(result)
 
     async def test_uses_query_raw_if_available(self, mock_loki):
-        result = await query_logs_custom("my query")
+        await query_logs_custom("my query")
         mock_loki.query_raw.assert_called_once()
 
     async def test_empty_query_raises(self):
@@ -506,7 +505,7 @@ class TestGetResourceHistory:
         ok(result)
         call_kwargs = mock_cloudtrail.get_resource_history.call_args.kwargs
         # start_time should be within 90 days
-        from datetime import UTC, datetime, timedelta
+        from datetime import UTC, datetime
         now = datetime.now(UTC)
         assert (now - call_kwargs["start_time"]).days <= 90
 
@@ -586,7 +585,7 @@ class TestDetectBackends:
 
     def test_datadog_takes_priority(self):
         with patch.object(server_module.settings, "datadog_api_key", "dd-key-123"):
-            log, metrics, trace = server_module._detect_backends()
+            log, metrics, _trace = server_module._detect_backends()
             assert isinstance(log, server_module.DatadogClient)
             assert isinstance(metrics, server_module.DatadogClient)
 
@@ -595,7 +594,7 @@ class TestDetectBackends:
             patch.object(server_module.settings, "datadog_api_key", ""),
             patch.object(server_module.settings, "cloudwatch_log_group", "/aws/eks/app"),
         ):
-            log, metrics, trace = server_module._detect_backends()
+            log, _metrics, _trace = server_module._detect_backends()
             assert isinstance(log, server_module.CloudWatchClient)
 
     def test_no_backends_returns_none(self):

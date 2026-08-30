@@ -16,6 +16,35 @@ from k8s_telemetry_mcp.sanitizers import sanitize
 logger = logging.getLogger(__name__)
 
 
+def _bare_resource_name(resource_id: str) -> str:
+    """Reduce an ARN to the bare resource name CloudTrail's ResourceName lookup expects.
+
+    CloudTrail indexes resources by their short name, not their ARN. ARN resource parts
+    come in several shapes:
+        arn:aws:iam::123:role/my-role            -> my-role
+        arn:aws:s3:::my-bucket                   -> my-bucket
+        arn:aws:lambda:us-east-1:123:function:fn -> fn
+        arn:aws:lambda:us-east-1:123:function:fn:3 -> fn   (3 is a version qualifier)
+    Non-ARN inputs are returned unchanged.
+    """
+    if not resource_id.startswith("arn:"):
+        return resource_id
+
+    parts = resource_id.split(":", 5)
+    resource_part = parts[5] if len(parts) == 6 else resource_id
+
+    if "/" in resource_part:
+        candidate = resource_part.split("/")[-1]
+    else:
+        segments = resource_part.split(":")
+        candidate = segments[-1]
+        # A trailing all-digit segment is a version/qualifier, not the resource name.
+        if len(segments) > 1 and candidate.isdigit():
+            candidate = segments[-2]
+
+    return candidate or resource_id
+
+
 def _sanitize_event(event: dict) -> dict:
     """Sanitize a CloudTrail event, redacting sensitive fields."""
     result = {
@@ -41,6 +70,9 @@ def _sanitize_event(event: dict) -> dict:
         }
     except Exception as exc:  # CloudTrail event JSON may be malformed, skip gracefully
         logger.debug("Failed to parse CloudTrail event detail: %s", exc)
+        result["detail_parse_error"] = "CloudTrailEvent payload was not valid JSON; only summary fields are available."
+
+    return result
 
 
 class CloudTrailClient:
@@ -71,15 +103,26 @@ class CloudTrailClient:
         start_time = start_time or (end_time - timedelta(hours=1))
         limit = max(1, min(limit, 50))
 
-        lookup_attrs = []
-        if event_name:
-            lookup_attrs.append({"AttributeKey": "EventName", "AttributeValue": event_name})
-        elif username:
-            lookup_attrs.append({"AttributeKey": "Username", "AttributeValue": username})
-        elif resource_name:
-            lookup_attrs.append({"AttributeKey": "ResourceName", "AttributeValue": resource_name})
-        elif keyword:
-            lookup_attrs.append({"AttributeKey": "EventName", "AttributeValue": keyword})
+        # CloudTrail LookupEvents accepts exactly ONE LookupAttribute per call, so when
+        # several filters are supplied we apply the most specific one and tell the caller
+        # which of theirs were dropped. Silently ignoring them produced results that looked
+        # filtered but were not.
+        candidates = [
+            ("event_name", "EventName", event_name),
+            ("username", "Username", username),
+            ("resource_name", "ResourceName", resource_name),
+            ("keyword", "EventName", keyword),
+        ]
+        supplied = [(name, key, value) for name, key, value in candidates if value]
+
+        lookup_attrs: list[dict[str, str]] = []
+        applied_filter: dict[str, str] | None = None
+        if supplied:
+            name, key, value = supplied[0]
+            lookup_attrs = [{"AttributeKey": key, "AttributeValue": value}]
+            applied_filter = {"argument": name, "attribute_key": key, "value": value}
+
+        ignored_filters = [name for name, _, _ in supplied[1:]]
 
         try:
             client = self._client()
@@ -93,7 +136,29 @@ class CloudTrailClient:
 
             resp = await self._run(client.lookup_events, **kwargs)
             events = [_sanitize_event(e) for e in resp.get("Events", [])]
-            return {"events": events, "count": len(events), "truncated": resp.get("NextToken") is not None}
+            result: dict[str, Any] = {
+                "events": events,
+                "count": len(events),
+                "truncated": resp.get("NextToken") is not None,
+                "applied_filter": applied_filter,
+                "search_window": {
+                    "start": start_time.isoformat(),
+                    "end": end_time.isoformat(),
+                },
+            }
+            if ignored_filters:
+                result["ignored_filters"] = ignored_filters
+                result["filter_note"] = (
+                    "CloudTrail supports only one lookup attribute per query. "
+                    f"Applied '{applied_filter['argument']}' and ignored {ignored_filters}. "
+                    "Issue separate queries to filter on those."
+                )
+            if applied_filter and applied_filter["argument"] == "keyword":
+                result["filter_note"] = (
+                    "'keyword' is matched against the CloudTrail EventName as an exact value "
+                    "(e.g. 'DeleteBucket'), not as a free-text search."
+                )
+            return result
         except ClientError as e:
             return {"error": f"CloudTrail query failed: {e.response['Error']['Message']}", "events": []}
 
@@ -109,8 +174,7 @@ class CloudTrailClient:
         start_time = start_time or (end_time - timedelta(days=90))
         limit = max(1, min(limit, 50))
 
-        # Strip ARN to bare resource name for lookup
-        resource_name = resource_id.split("/")[-1].split(":")[-1]
+        resource_name = _bare_resource_name(resource_id)
 
         try:
             client = self._client()
@@ -124,6 +188,9 @@ class CloudTrailClient:
             events = [_sanitize_event(e) for e in resp.get("Events", [])]
             return {
                 "resource_id": resource_id,
+                # Surfaced so the caller can tell when ARN parsing picked the wrong segment
+                # and retry with a bare resource name.
+                "searched_resource_name": resource_name,
                 "search_window_days": (end_time - start_time).days,
                 "events": events,
                 "count": len(events),

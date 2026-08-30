@@ -2,7 +2,7 @@ FROM python:3.11-slim AS builder
 
 WORKDIR /app
 COPY pyproject.toml README.md ./
-COPY src/ ./src/
+COPY k8s_telemetry_mcp/ ./k8s_telemetry_mcp/
 RUN pip install --no-cache-dir hatchling && pip wheel --no-deps --wheel-dir /wheels .
 
 FROM python:3.11-slim

@@ -2,9 +2,13 @@
 
 import pytest
 
-from src.duration import validate_duration
-from src.validation import ValidationError, validate_identifier, validate_query, validate_trace_id
-
+from k8s_telemetry_mcp.duration import validate_duration
+from k8s_telemetry_mcp.validation import (
+    ValidationError,
+    validate_identifier,
+    validate_query,
+    validate_trace_id,
+)
 
 # ---------------------------------------------------------------------------
 # validate_identifier
@@ -194,21 +198,21 @@ class TestValidateDuration:
         assert validate_duration("1.5s", "dur") == "1.5s"
 
     def test_no_unit_raises(self):
-        from src.validation import ValidationError
+        from k8s_telemetry_mcp.validation import ValidationError
         with pytest.raises(ValidationError):
             validate_duration("100", "dur")
 
     def test_invalid_unit_raises(self):
-        from src.validation import ValidationError
+        from k8s_telemetry_mcp.validation import ValidationError
         with pytest.raises(ValidationError):
             validate_duration("100x", "dur")
 
     def test_invalid_chars_raises(self):
-        from src.validation import ValidationError
+        from k8s_telemetry_mcp.validation import ValidationError
         with pytest.raises(ValidationError):
             validate_duration("1s; rm -rf", "dur")
 
     def test_no_numeric_part_raises(self):
-        from src.validation import ValidationError
+        from k8s_telemetry_mcp.validation import ValidationError
         with pytest.raises(ValidationError):
             validate_duration("ms", "dur")

@@ -9,8 +9,6 @@ in a browser. XSS sanitization is not applicable here — all output is plain te
 
 from __future__ import annotations
 
-from typing import Any
-
 
 def fmt_k8s_events(result: dict) -> str:
     events = result.get("events", [])
@@ -267,11 +265,27 @@ def fmt_check_slo_status(result: dict) -> str:
     budget_status = budget.get("status", "unknown")
     remaining = budget.get("remaining_percentage")
     burn_rate = budget.get("burn_rate")
-    if remaining is not None:
-        budget_icon = "✅" if budget_status == "healthy" else ("⚠️" if budget_status == "warning" else "🚨")
-        lines.append(f"**Error Budget**: {budget_icon} {remaining:.1f}% remaining (burn rate: {burn_rate:.2f}×)")
+
+    if budget_status == "insufficient_traffic":
+        lines.append("**Error Budget**: ℹ️ not enough traffic to evaluate")
+        if budget.get("note"):
+            lines.append(f"  ↳ {budget['note']}")
+    elif remaining is not None:
+        budget_icons = {
+            "healthy": "✅",
+            "elevated": "⚠️",
+            "warning": "⚠️",
+            "critical": "🚨",
+            "exhausted": "🚨",
+        }
+        budget_icon = budget_icons.get(budget_status, "•")
+        burn_str = "∞" if burn_rate is None else f"{burn_rate:.2f}×"
+        lines.append(f"**Error Budget**: {budget_icon} {remaining:.1f}% remaining (burn rate: {burn_str})")
         if budget.get("hours_to_exhaustion"):
-            lines.append(f"  ↳ Budget exhausted in **{budget['hours_to_exhaustion']:.1f}h** at current rate")
+            lines.append(
+                f"  ↳ A full 30-day budget would be exhausted in "
+                f"**{budget['hours_to_exhaustion']:.1f}h** at this rate"
+            )
 
     if recs:
         lines.append("\n**Actions**")
@@ -306,5 +320,5 @@ def fmt_get_resource_costs(result: dict) -> str:
         for s in suggestions:
             lines.append(f"  → {s}")
 
-    lines.append(f"\n_Estimates use approximate rates. See AWS Cost Explorer for authoritative figures._")
+    lines.append("\n_Estimates use approximate rates. See AWS Cost Explorer for authoritative figures._")
     return "\n".join(lines)

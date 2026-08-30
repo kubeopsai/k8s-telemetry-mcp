@@ -50,6 +50,113 @@ class KubernetesClient:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, partial(fn, *args, **kwargs))
 
+    async def get_pod_status(
+        self,
+        namespace: str = "default",
+        pod_name: str | None = None,
+    ) -> dict[str, Any]:
+        """Get phase, conditions and container states for pods in a namespace.
+
+        Answers "is the dependency this service can't reach actually running?" — the
+        question that distinguishes a connectivity problem from a dead backend.
+
+        Requires `get,list` on `pods`, which is beyond the ClusterRole the MCP Helm
+        chart installs by default. Callers without that permission receive a clear
+        error rather than an empty result.
+
+        Args:
+            namespace: Kubernetes namespace
+            pod_name: Exact pod name, or a name prefix. Omit to list every pod.
+        """
+        try:
+            pods = await self._list_pods(namespace, pod_name)
+        except Exception as e:
+            return {
+                "error": (
+                    f"Kubernetes API error: {e}. Ensure the service account has "
+                    "'get,list' on 'pods' in this namespace."
+                ),
+                "pods": [],
+            }
+
+        result = [self._describe_pod(pod) for pod in pods]
+        return {
+            "namespace": namespace,
+            "pod_filter": pod_name,
+            "pods": result,
+            "count": len(result),
+        }
+
+    async def _list_pods(self, namespace: str, pod_name: str | None) -> list[Any]:
+        """Resolve pods by exact name, then by prefix, else all pods in the namespace."""
+        if not pod_name:
+            resp = await self._run(self._core.list_namespaced_pod, namespace)
+            return list(resp.items)
+
+        resp = await self._run(
+            self._core.list_namespaced_pod,
+            namespace,
+            field_selector=f"metadata.name={pod_name}",
+        )
+        if resp.items:
+            return list(resp.items)
+
+        # Deployment-managed pods carry a generated suffix, so fall back to a prefix
+        # match against the full list.
+        resp = await self._run(self._core.list_namespaced_pod, namespace)
+        return [p for p in resp.items if p.metadata.name.startswith(pod_name)]
+
+    @staticmethod
+    def _container_state(container_status: Any) -> dict[str, Any]:
+        state = container_status.state
+        if state.running:
+            detail = {"state": "running", "started_at": str(state.running.started_at)}
+        elif state.waiting:
+            detail = {
+                "state": "waiting",
+                "reason": state.waiting.reason,
+                # Sanitized: waiting/terminated messages can echo mounted secret values
+                # or connection strings.
+                "message": sanitize(state.waiting.message or ""),
+            }
+        elif state.terminated:
+            detail = {
+                "state": "terminated",
+                "reason": state.terminated.reason,
+                "exit_code": state.terminated.exit_code,
+                "finished_at": str(state.terminated.finished_at),
+                "message": sanitize(state.terminated.message or ""),
+            }
+        else:
+            detail = {"state": "unknown"}
+
+        return {
+            "name": container_status.name,
+            "ready": container_status.ready,
+            "restart_count": container_status.restart_count,
+            **detail,
+        }
+
+    def _describe_pod(self, pod: Any) -> dict[str, Any]:
+        return {
+            "name": pod.metadata.name,
+            "phase": pod.status.phase,
+            "node": pod.spec.node_name if pod.spec else None,
+            "conditions": [
+                {
+                    "type": c.type,
+                    "status": c.status,
+                    "reason": c.reason,
+                    "message": sanitize(c.message or ""),
+                }
+                for c in (pod.status.conditions or [])
+            ],
+            "containers": [
+                self._container_state(cs) for cs in (pod.status.container_statuses or [])
+            ],
+            "start_time": str(pod.status.start_time) if pod.status.start_time else None,
+        }
+
     async def get_events(
         self,
         namespace: str = "default",

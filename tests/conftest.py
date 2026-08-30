@@ -1,14 +1,10 @@
 """Shared fixtures for MCP server tests."""
 
-import json
-from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-import src.server as server_module
-from src.config import settings
-
+import k8s_telemetry_mcp.server as server_module
 
 # ---------------------------------------------------------------------------
 # Helpers

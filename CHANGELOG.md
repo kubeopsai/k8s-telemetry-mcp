@@ -5,6 +5,108 @@ All notable changes to K8s Telemetry MCP Server will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+> Entries for 1.0.3 through 1.1.3 were never written up. The 1.2.0 entry below covers
+> the correctness work; consult `git log` for the intervening feature releases.
+
+## [1.2.0] - 2026-08-30
+
+### Fixed
+
+- **`query_cloudtrail` and `get_resource_history` returned arrays of `null`.**
+  `_sanitize_event` built its result dict and never returned it, so both tools
+  produced `{"events": [null, null, ...]}`. Present in every copy of the module. No
+  test covered `tools/cloudtrail.py`, which is why it shipped.
+- **`check_slo_status` burn rate was inflated by `720 / window_hours`** (30x at the
+  default 24-hour window). The rate was divided by the window's fraction of a 30-day
+  period even though `allowed_errors` already came from that window's own traffic.
+  A service that had consumed exactly half its error budget reported a burn rate of
+  15.0 and a "critical" status. The `burn_rate > 2` threshold therefore fired almost
+  unconditionally.
+- **`check_slo_status` reported an exhausted budget for healthy low-traffic services.**
+  `int(total_requests * (1 - target))` truncated to 0 below ~1000 requests, so a
+  service with zero errors was graded "exhausted"/"critical". Such windows now report
+  `insufficient_traffic` with an explanation.
+- **`check_slo_status` could contradict itself**, returning a "critical" error budget
+  alongside an overall status of "healthy". `overall_status` is now the more severe of
+  the SLO outcome and the budget outcome.
+- **`build_incident_timeline` never emitted a metric event.** The code required an
+  `anomaly` key that no backend sets. Anomalies are now derived from the data:
+  non-zero restart counts, and points beyond a median/MAD threshold. Mean/stdev was
+  unsuitable — a single large spike inflates both enough to hide behind them.
+- **`enrich_alert` dropped every metric.** `_summarize_metrics` branched on scalars and
+  dicts, but the server passes the `results` list from `get_pod_metrics`.
+- **`enrich_alert` always reported zero recent deployments.** `AlertEnricher.enrich`
+  accepts `recent_deployments`; the server never passed it, despite a bad rollout being
+  the most common cause of a firing alert.
+- **`get_resource_costs` roughly doubled every figure.** The PromQL summed cAdvisor's
+  per-container series together with its pod-level aggregate. Now filtered with
+  `container!="",image!=""`.
+- **Redaction only descended one level.** Nested log payloads — a list of dicts, a dict
+  inside a dict, a parsed JSON log line — reached the model unredacted. Replaced with a
+  depth-bounded recursive walker.
+- **The published package could not be imported.** `tools/alertmanager.py` had a
+  `SyntaxError` from an under-indented `except`, introduced in 1.1.3. CI only linted and
+  tested the parallel `src/` copy, so nothing caught it.
+- **The Docker build could not have produced a working image.** It copied only `src/`
+  while the console script pointed at `k8s_telemetry_mcp.server:main`.
+- **Helm liveness and readiness probes could never fail.** They ran
+  `importlib.util.find_spec('src')`, which reports whether a module is installed — true
+  even with the process dead — and referenced the pre-rename package name.
+- **The Helm Deployment ran the stdio server as its main process**, which exits on EOF
+  when no stdin is attached (CrashLoopBackOff). Assistants connect via `kubectl exec`,
+  which starts its own server process.
+- `get_resource_history` mis-parsed ARNs whose resource part ends in a numeric
+  qualifier (`...:function:my-fn:3` searched for `3`).
+
+### Added
+
+- **`get_configuration_history`** (23rd tool) — what actually changed on an AWS resource,
+  with field-level before/after diffs. CloudTrail records that an API call happened; AWS
+  Config records the resulting state, so this is the tool that shows a security group's
+  ingress going from `10.0.0.0/8` to `0.0.0.0/0`. Each change carries a `config_item_id`
+  and capture time for citation, plus AWS Config's `relationships` — factual resource
+  adjacency rather than an inference. Diff paths are dotted with bracketed list indices
+  (`ipPermissions[0].ipRanges[0]`), and the first snapshot in a window is reported as a
+  baseline rather than a change.
+- `validate_aws_resource_type` and `validate_aws_resource_id` validators. AWS Config
+  resource types contain colons, which `validate_identifier` correctly rejects for
+  Kubernetes names, so a dedicated validator was needed rather than loosening the
+  existing one.
+- `k8s-telemetry-mcp-host` console script (`keepalive.py`): the pod's long-lived
+  process. Validates the installation at startup, logs the detected backends, and
+  maintains a heartbeat file that the health probes check.
+- `KubernetesClient.get_pod_status()` — pod phase, conditions and container states.
+  Answers "is the dependency this service cannot reach actually running?". Moved here
+  from promtops, where it had been implemented against a non-existent attribute and
+  could never succeed. Requires `get,list` on `pods`, which is beyond the ClusterRole
+  this chart installs by default.
+- `sanitize_structure()` for arbitrarily nested payloads.
+- `query_cloudtrail` now reports `applied_filter`, `ignored_filters` and a
+  `filter_note`. CloudTrail accepts one lookup attribute per call, so extra arguments
+  used to be dropped silently while appearing to have been applied.
+- Helm: Datadog credentials via `secretKeyRef` (`config.datadogExistingSecret`) instead
+  of plaintext values visible in `helm get values`.
+- Helm: `networkPolicy.allowAwsApiEgress` and `networkPolicy.awsEndpointCidrs` to
+  scope or remove the broad port-443 egress rule.
+- Tests for `tools/cloudtrail.py`, `sanitizers/`, `keepalive.py` and
+  `KubernetesClient.get_pod_status` — none of which had any coverage. 199 → 341 tests.
+
+### Changed
+
+- **Consolidated the duplicated package.** `src/` and `k8s_telemetry_mcp/` were
+  byte-identical apart from import prefixes, and only `src/` was tested or linted.
+  `src/` has been removed; `k8s_telemetry_mcp/` is the single package.
+- Helm NetworkPolicy: DNS egress scoped to `kube-system` rather than all namespaces.
+- Helm: removed the `MCP_AWS_MARKETPLACE_PRODUCT_CODE`, `MCP_MARKETPLACE_TIER` and
+  `MCP_LOCAL_DEV` environment variables, left over from before the project was
+  open-sourced and read by nothing.
+- Helm: `podSecurityContext` uid/gid 1000 → 1001, matching the image's `mcp` user.
+- `values.yaml` now documents that the observability namespace must carry the label
+  `name: monitoring`, without which the NetworkPolicy blocks every query.
+- CI lints and tests the shipped package, runs a 3.11/3.12 matrix, and builds the
+  image on pull requests so packaging breakage cannot reach a release tag.
+- `config.VERSION` now tracks `pyproject.toml` (was reporting 1.1.1 at 1.1.3).
+
 ## [1.0.2] - 2026-08-23
 
 ### Added

@@ -12,23 +12,45 @@ spec:
   policyTypes:
     - Ingress
     - Egress
-  ingress: []  # No ingress needed - MCP uses stdio
+  ingress: []  # No ingress needed — assistants connect via `kubectl exec` (stdio).
   egress:
     {{- with .Values.networkPolicy.egressRules }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
-    # Allow DNS resolution
+    # DNS. Scoped to kube-system rather than all namespaces; override
+    # networkPolicy.dnsNamespaceSelector if your cluster runs CoreDNS elsewhere.
     - to:
-        - namespaceSelector: {}
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml .Values.networkPolicy.dnsNamespaceSelector | nindent 14 }}
       ports:
         - protocol: UDP
           port: 53
-    # Allow HTTPS to AWS Marketplace Metering Service (RegisterUsage API).
-    # Required for license enforcement and billing. Without this rule the
-    # periodic metering calls will fail and the license check will block startup.
-    # If you use a VPC endpoint for AWS Marketplace, restrict this to the
-    # endpoint's private IP range instead of allowing all external HTTPS.
+        - protocol: TCP
+          port: 53
+    {{- if .Values.networkPolicy.allowAwsApiEgress }}
+    # HTTPS to AWS service endpoints, required by the AWS-backed tools:
+    #   query_cloudtrail, get_resource_history, get_resource_compliance,
+    #   get_image_vulnerabilities, get_database_insights
+    #
+    # NetworkPolicy cannot express "AWS endpoints" by name, so this permits egress to
+    # 443 generally. Two ways to tighten it:
+    #   * set allowAwsApiEgress: false if you do not use the AWS tools
+    #   * front the AWS APIs with VPC endpoints and replace this with an ipBlock
+    #     restricted to the endpoint CIDR (see networkPolicy.awsEndpointCidrs)
+    {{- if .Values.networkPolicy.awsEndpointCidrs }}
+    - to:
+        {{- range .Values.networkPolicy.awsEndpointCidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: 443
+    {{- else }}
     - ports:
         - protocol: TCP
           port: 443
+    {{- end }}
+    {{- end }}
 {{- end }}

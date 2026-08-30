@@ -157,16 +157,7 @@ class IncidentTimelineBuilder:
                 })
 
         # Extract metric anomalies
-        if metrics:
-            for metric_name, data in metrics.items():
-                if isinstance(data, dict) and data.get("anomaly"):
-                    events.append({
-                        "timestamp": data.get("timestamp", ""),
-                        "type": "metric",
-                        "severity": "warning",
-                        "source": metric_name,
-                        "message": f"{metric_name}: {data.get('description', 'anomaly detected')}",
-                    })
+        events.extend(self._extract_metric_events(metrics))
 
         # Extract trace errors
         for trace in traces:
@@ -189,6 +180,132 @@ class IncidentTimelineBuilder:
             "summary": self._summarize_timeline(events),
             "_automate": "Want this at 3 AM without anyone at a keyboard? → https://kubeopsai.net",
         }
+
+    @staticmethod
+    def _metric_points(data: Any) -> list[dict[str, Any]]:
+        """Flatten a metrics payload into a list of {timestamp, value, series} points.
+
+        Accepts the shape returned by ``get_pod_metrics``
+        (``{"metric_type": ..., "results": [...]}``), a bare results list, or a
+        range-query result where each series carries a ``values`` list.
+        """
+        if isinstance(data, dict):
+            results = data.get("results", [])
+        elif isinstance(data, list):
+            results = data
+        else:
+            return []
+
+        points: list[dict[str, Any]] = []
+        for series in results:
+            if not isinstance(series, dict):
+                continue
+            labels = series.get("metric", {}) if isinstance(series.get("metric"), dict) else {}
+            series_name = labels.get("pod") or labels.get("namespace") or ""
+            if "values" in series and isinstance(series["values"], list):
+                for point in series["values"]:
+                    if isinstance(point, dict) and isinstance(point.get("value"), (int, float)):
+                        points.append({
+                            "timestamp": point.get("timestamp", ""),
+                            "value": float(point["value"]),
+                            "series": series_name,
+                        })
+            elif isinstance(series.get("value"), (int, float)):
+                points.append({
+                    "timestamp": series.get("timestamp", ""),
+                    "value": float(series["value"]),
+                    "series": series_name,
+                })
+        return points
+
+    def _extract_metric_events(self, metrics: Any) -> list[dict[str, Any]]:
+        """Derive timeline events from metric data.
+
+        Two detections, both grounded in real values rather than an ``anomaly`` flag
+        that no backend ever set:
+          * ``restarts`` — any non-zero count is timeline-worthy on its own.
+          * everything else — points more than two standard deviations above the
+            series mean, which needs at least 3 samples (i.e. a range query). Instant
+            queries yield a single point, so no anomaly is claimed for them.
+        """
+        if not isinstance(metrics, dict):
+            return []
+
+        events: list[dict[str, Any]] = []
+        for metric_name, data in metrics.items():
+            # Preserve support for a pre-computed anomaly marker.
+            if isinstance(data, dict) and data.get("anomaly"):
+                events.append({
+                    "timestamp": data.get("timestamp", ""),
+                    "type": "metric",
+                    "severity": "warning",
+                    "source": metric_name,
+                    "message": f"{metric_name}: {data.get('description', 'anomaly detected')}",
+                })
+                continue
+
+            points = self._metric_points(data)
+            if not points:
+                continue
+
+            if "restart" in str(metric_name).lower():
+                for point in points:
+                    if point["value"] > 0:
+                        target = f" ({point['series']})" if point["series"] else ""
+                        events.append({
+                            "timestamp": point["timestamp"],
+                            "type": "metric",
+                            "severity": "warning",
+                            "source": metric_name,
+                            "message": f"{int(point['value'])} container restart(s) observed{target}",
+                        })
+                continue
+
+            if len(points) < 3:
+                continue
+
+            values = [p["value"] for p in points]
+            baseline = self._median(values)
+            # Median absolute deviation rather than standard deviation: a single large
+            # spike inflates the mean and stdev enough to hide itself behind a 2σ
+            # threshold, which is exactly the case this detection exists for.
+            mad = self._median([abs(v - baseline) for v in values])
+            robust_sigma = 1.4826 * mad  # scales MAD to be comparable to stdev
+
+            if robust_sigma > 0:
+                threshold = baseline + 3 * robust_sigma
+            else:
+                # Flat baseline — require a clear multiplicative jump instead.
+                threshold = baseline * 1.5 if baseline > 0 else 0.0
+
+            for point in points:
+                value = point["value"]
+                # The relative floor keeps small absolute wobble on a near-zero
+                # baseline from being reported as a spike.
+                if value > threshold and value > baseline * 1.5 and value > 0:
+                    target = f" ({point['series']})" if point["series"] else ""
+                    events.append({
+                        "timestamp": point["timestamp"],
+                        "type": "metric",
+                        "severity": "warning",
+                        "source": metric_name,
+                        "message": (
+                            f"{metric_name} spike{target}: {value:.4g} "
+                            f"vs window median {baseline:.4g}"
+                        ),
+                    })
+        return events
+
+    @staticmethod
+    def _median(values: list[float]) -> float:
+        """Median of a non-empty list of floats."""
+        if not values:
+            return 0.0
+        ordered = sorted(values)
+        mid = len(ordered) // 2
+        if len(ordered) % 2:
+            return ordered[mid]
+        return (ordered[mid - 1] + ordered[mid]) / 2
 
     def _classify_severity(self, message: str) -> str:
         """Classify log message severity."""
@@ -255,17 +372,69 @@ class AlertEnricher:
         }
 
     def _summarize_metrics(self, metrics: dict[str, Any]) -> dict[str, Any]:
-        """Summarize metrics for alert context."""
+        """Summarize metrics for alert context.
+
+        Callers pass the ``results`` list from ``get_pod_metrics`` (one entry per
+        series), so a list is the common case — it previously fell through every
+        branch and every metric was dropped.
+        """
         if not metrics:
             return {"status": "No metrics available"}
 
-        summary = {}
+        summary: dict[str, Any] = {}
         for name, value in metrics.items():
-            if isinstance(value, (int, float)):
+            if value is None:
+                summary[name] = "unavailable (query failed)"
+            elif isinstance(value, bool):
+                summary[name] = value
+            elif isinstance(value, (int, float)):
                 summary[name] = round(value, 3) if isinstance(value, float) else value
+            elif isinstance(value, list):
+                summary[name] = self._summarize_series(value)
             elif isinstance(value, dict):
-                summary[name] = value.get("value", value)
-        return summary
+                if "results" in value:
+                    summary[name] = self._summarize_series(value.get("results") or [])
+                elif "value" in value:
+                    summary[name] = value["value"]
+                else:
+                    summary[name] = value
+            else:
+                summary[name] = value
+        return summary or {"status": "No metrics available"}
+
+    @staticmethod
+    def _summarize_series(results: list[Any]) -> Any:
+        """Reduce a Prometheus-style results list to a readable value.
+
+        One series collapses to its latest numeric value; several are keyed by pod so
+        the LLM can see which replica is affected.
+        """
+        if not results:
+            return "no data"
+
+        per_series: dict[str, float] = {}
+        for series in results:
+            if not isinstance(series, dict):
+                continue
+            labels = series.get("metric", {}) if isinstance(series.get("metric"), dict) else {}
+            key = labels.get("pod") or labels.get("namespace") or labels.get("instance") or "value"
+
+            latest: float | None = None
+            if "values" in series and isinstance(series["values"], list):
+                for point in series["values"]:
+                    if isinstance(point, dict) and isinstance(point.get("value"), (int, float)):
+                        latest = float(point["value"])
+            elif isinstance(series.get("value"), (int, float)):
+                latest = float(series["value"])
+
+            if latest is not None:
+                per_series[key] = round(latest, 4)
+
+        if not per_series:
+            return "no numeric data"
+        if len(per_series) == 1:
+            return next(iter(per_series.values()))
+        return per_series
 
     def _summarize_traces(self, traces: list[dict]) -> dict[str, Any]:
         """Summarize traces for alert context."""
@@ -359,6 +528,26 @@ class CostAnalyzer:
 class SLOChecker:
     """Check SLO/SLI status and error budgets."""
 
+    # Conventional SLO period used for exhaustion projections (30 days).
+    _SLO_PERIOD_HOURS: ClassVar[int] = 30 * 24
+
+    # Used to reconcile the SLO outcome and the error-budget outcome into one
+    # overall_status by taking the more severe of the two.
+    _SEVERITY_RANK: ClassVar[dict[str, int]] = {
+        "healthy": 0,
+        "warning": 1,
+        "degraded": 2,
+        "critical": 3,
+    }
+    _BUDGET_TO_OVERALL: ClassVar[dict[str, str]] = {
+        "insufficient_traffic": "healthy",
+        "healthy": "healthy",
+        "elevated": "warning",
+        "warning": "warning",
+        "critical": "critical",
+        "exhausted": "critical",
+    }
+
     def check(
         self,
         service_name: str,
@@ -408,37 +597,79 @@ class SLOChecker:
             "gap_ms": round(latency_target_ms - current_latency_ms, 2),
         }
 
-        # Error budget calculation
-        allowed_errors = int(total_requests * (1 - availability_target))
-        error_budget_remaining = max(0, allowed_errors - error_count)
-        error_budget_pct = round(error_budget_remaining / max(allowed_errors, 1) * 100, 1)
-        
-        # Burn rate
-        window_fraction = window_hours / (30 * 24)  # Fraction of monthly window
-        expected_budget_used = window_fraction * 100
-        actual_budget_used = 100 - error_budget_pct
-        burn_rate = actual_budget_used / max(expected_budget_used, 0.01)
+        # ── Error budget ────────────────────────────────────────────────────────
+        # Burn rate is the observed error ratio divided by the ratio the SLO allows.
+        # 1.0 means the budget is being consumed exactly as fast as the SLO permits.
+        # It must NOT be scaled by the window's fraction of the SLO period — the
+        # allowed-error count is already derived from this window's traffic, so
+        # dividing again inflated every burn rate by (SLO period / window).
+        allowed_error_ratio = max(0.0, 1.0 - availability_target)
+        allowed_errors_exact = total_requests * allowed_error_ratio
+        observed_error_ratio = error_count / total_requests
 
-        error_budget = {
+        if allowed_error_ratio == 0:
+            # A 100% availability target permits no errors at all.
+            burn_rate = float("inf") if error_count > 0 else 0.0
+        else:
+            burn_rate = observed_error_ratio / allowed_error_ratio
+
+        remaining_errors = max(0.0, allowed_errors_exact - error_count)
+        # Window budget remaining, expressed against the burn rate so the two agree:
+        # burn 0.5 -> 50% left, burn 1.0 -> 0% left.
+        if allowed_errors_exact <= 0:
+            error_budget_pct = 0.0
+        else:
+            error_budget_pct = round(max(0.0, 1.0 - burn_rate) * 100, 1)
+
+        # Below ~1 allowed error the budget is not statistically meaningful: a single
+        # request failing would read as "100% budget consumed". Report that honestly
+        # instead of flagging a healthy low-traffic service as exhausted.
+        has_meaningful_budget = allowed_errors_exact >= 1.0
+        budget_status = self._budget_status(
+            burn_rate=burn_rate,
+            has_meaningful_budget=has_meaningful_budget,
+            covers_full_period=window_hours >= self._SLO_PERIOD_HOURS,
+        )
+
+        error_budget: dict[str, Any] = {
             "total_requests": total_requests,
             "error_count": error_count,
-            "allowed_errors": allowed_errors,
-            "remaining_errors": error_budget_remaining,
+            "allowed_errors": int(allowed_errors_exact),
+            "allowed_errors_exact": round(allowed_errors_exact, 3),
+            "remaining_errors": int(remaining_errors),
             "remaining_percentage": error_budget_pct,
-            "burn_rate": round(burn_rate, 2),
-            "status": self._budget_status(error_budget_pct, burn_rate),
+            "burn_rate": round(burn_rate, 2) if burn_rate != float("inf") else None,
+            "burn_rate_note": (
+                "Observed error ratio divided by the ratio the SLO allows. "
+                "1.0 = consuming budget exactly as fast as the SLO permits."
+            ),
+            "status": budget_status,
         }
 
-        # Time to exhaustion
-        if burn_rate > 1 and error_budget_pct > 0:
-            hours_to_exhaustion = (error_budget_pct / 100) * (30 * 24) / burn_rate
-            error_budget["hours_to_exhaustion"] = round(hours_to_exhaustion, 1)
+        if not has_meaningful_budget:
+            error_budget["note"] = (
+                f"{total_requests} requests at a {availability_target:.3%} target allows only "
+                f"{allowed_errors_exact:.2f} errors in this window — too few for a meaningful "
+                "error budget. Widen window_hours or wait for more traffic."
+            )
 
-        overall_status = "healthy" if availability_slo["met"] and latency_slo["met"] else "degraded"
-        if error_budget_pct < 10:
-            overall_status = "critical"
-        elif error_budget_pct < 25:
-            overall_status = "warning"
+        # Time to exhaust a full SLO-period budget if the current rate is sustained.
+        if has_meaningful_budget and burn_rate > 1 and burn_rate != float("inf"):
+            error_budget["hours_to_exhaustion"] = round(self._SLO_PERIOD_HOURS / burn_rate, 1)
+            error_budget["hours_to_exhaustion_note"] = (
+                f"Hours until a full {self._SLO_PERIOD_HOURS // 24}-day error budget would be "
+                "exhausted if this burn rate continues."
+            )
+
+        # Overall status is the worst of the SLO outcome and the budget outcome.
+        # Previously these were computed independently, so a response could report a
+        # "critical" error budget alongside an overall status of "healthy".
+        slo_status = "healthy" if availability_slo["met"] and latency_slo["met"] else "degraded"
+        overall_status = max(
+            slo_status,
+            self._BUDGET_TO_OVERALL.get(budget_status, "healthy"),
+            key=lambda s: self._SEVERITY_RANK.get(s, 0),
+        )
 
         return {
             "service": service_name,
@@ -450,14 +681,35 @@ class SLOChecker:
             "recommendations": self._generate_recommendations(availability_slo, latency_slo, error_budget),
         }
 
-    def _budget_status(self, remaining_pct: float, burn_rate: float) -> str:
-        """Determine error budget status."""
-        if remaining_pct <= 0:
-            return "exhausted"
-        if burn_rate > 2:
+    def _budget_status(
+        self,
+        burn_rate: float,
+        has_meaningful_budget: bool,
+        covers_full_period: bool,
+    ) -> str:
+        """Classify error budget health from the burn rate.
+
+        Thresholds follow the usual multi-window burn-rate convention. Note that over a
+        short window, burn_rate >= 1 does not mean the *period* budget is gone — only
+        that the window consumed more than its proportional share. "exhausted" is
+        therefore reserved for windows that span the whole SLO period, where the two
+        are the same thing.
+        """
+        # Checked before the traffic guard: a 100% availability target legitimately
+        # allows zero errors, so allowed_errors_exact == 0 is meaningful there rather
+        # than a symptom of thin traffic.
+        if burn_rate == float("inf"):
             return "critical"
-        if burn_rate > 1:
+        if not has_meaningful_budget:
+            return "insufficient_traffic"
+        if covers_full_period and burn_rate >= 1:
+            return "exhausted"
+        if burn_rate > 10:
+            return "critical"
+        if burn_rate > 2:
             return "warning"
+        if burn_rate > 1:
+            return "elevated"
         return "healthy"
 
     def _generate_recommendations(self, avail: dict, latency: dict, budget: dict) -> list[str]:
@@ -469,16 +721,31 @@ class SLOChecker:
         
         if not latency["met"]:
             recs.append(f"Latency above target ({latency['current_ms']}ms > {latency['target_ms']}ms) - check for bottlenecks")
-        
-        if budget["burn_rate"] > 2:
-            recs.append("CRITICAL: Error budget burning 2x faster than sustainable - immediate action required")
-        elif budget["burn_rate"] > 1:
-            recs.append("Warning: Error budget burning faster than sustainable - monitor closely")
-        
-        if budget["remaining_percentage"] < 10:
+
+        status = budget.get("status")
+        burn_rate = budget.get("burn_rate")
+
+        if status == "insufficient_traffic":
+            recs.append(
+                "Traffic volume is too low for a meaningful error budget at this target - "
+                "widen window_hours before acting on these numbers"
+            )
+        elif burn_rate is None:
+            # burn_rate is None only when the availability target is 100% and errors occurred.
+            recs.append("CRITICAL: availability target allows no errors and errors were observed - investigate immediately")
+        elif burn_rate > 10:
+            recs.append("CRITICAL: Error budget burning >10x faster than sustainable - immediate action required")
+        elif burn_rate > 2:
+            recs.append("Error budget burning >2x faster than sustainable - page the on-call and freeze deploys")
+        elif burn_rate > 1:
+            recs.append("Error budget burning faster than sustainable - monitor closely")
+
+        if status == "exhausted":
+            recs.append("Error budget exhausted for this window - freeze non-critical changes")
+        elif status != "insufficient_traffic" and budget.get("remaining_percentage", 100) < 10:
             recs.append("Error budget nearly exhausted - freeze non-critical changes")
-        
+
         if not recs:
             recs.append("All SLOs met - system operating within targets")
-        
+
         return recs

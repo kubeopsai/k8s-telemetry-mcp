@@ -5,7 +5,7 @@
 Connect Amazon Q, Claude, Kiro, Cursor, or any MCP-compatible AI assistant to Loki, Prometheus, Tempo, and the Kubernetes API — via a single Helm install.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.1.1-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.2.0-green.svg)](CHANGELOG.md)
 [![Helm](https://img.shields.io/badge/Helm-3.x-blue.svg)](helm/k8s-telemetry-mcp)
 
 ---
@@ -41,6 +41,14 @@ helm install k8s-telemetry-mcp k8s-telemetry-mcp/k8s-telemetry-mcp \
   --set config.prometheusUrl=http://prometheus-server.monitoring:9090 \
   --set config.tempoUrl=http://tempo.monitoring:3200
 ```
+
+> **Label your observability namespace.** The bundled NetworkPolicy only allows egress to
+> a namespace labelled `name: <namespace>`. Kubernetes does not add that label for you,
+> and without it every query is blocked:
+>
+> ```bash
+> kubectl label namespace monitoring name=monitoring
+> ```
 
 ### 2. Configure Your AI Assistant
 
@@ -87,7 +95,7 @@ helm install k8s-telemetry-mcp k8s-telemetry-mcp/k8s-telemetry-mcp \
 
 ---
 
-## 22 Tools Across 6 Categories
+## 23 tools Across 6 Categories
 
 ### Logs
 | Tool | Description |
@@ -132,6 +140,7 @@ helm install k8s-telemetry-mcp k8s-telemetry-mcp/k8s-telemetry-mcp \
 | `query_cloudtrail` | Search CloudTrail events by keyword, event name, user, or resource. |
 | `get_resource_history` | Full audit trail for a specific AWS resource ID or ARN. |
 | `get_resource_compliance` | AWS Config compliance status — drift and non-compliant rules. |
+| `get_configuration_history` | What actually changed on a resource, with field-level before/after diffs. |
 | `get_image_vulnerabilities` | ECR image vulnerability findings via Inspector v2 or basic scan. |
 | `get_database_insights` | RDS Performance Insights and ElastiCache CloudWatch metrics. |
 
@@ -147,7 +156,8 @@ All settings use the `MCP_` prefix:
 | `MCP_PROMETHEUS_URL` | `""` | Prometheus endpoint |
 | `MCP_TEMPO_URL` | `""` | Tempo endpoint |
 | `MCP_ALERTMANAGER_URL` | `""` | Alertmanager endpoint |
-| `MCP_AWS_REGION` | `us-east-1` | AWS region for CloudTrail/ECR/RDS tools |
+| `MCP_ALERTMANAGER_URL` | `""` | Alertmanager endpoint (required for `get_alertmanager_history`) |
+| `MCP_AWS_REGION` | `us-east-1` | AWS region for CloudTrail/Config/ECR/RDS tools |
 | `MCP_DATADOG_API_KEY` | `""` | Datadog API key (overrides Loki/Prometheus) |
 | `MCP_CLOUDWATCH_LOG_GROUP` | `""` | CloudWatch log group (overrides Loki) |
 | `MCP_ENABLE_SANITIZATION` | `true` | Auto-redact PII and secrets |
@@ -159,11 +169,20 @@ All settings use the `MCP_` prefix:
 
 ## Security
 
-- **Read-only**: All 22 tools are strictly read-only. No write, delete, or mutation operations.
-- **Auto-sanitization**: PII, secrets, tokens, AWS keys, JWTs, and database connection strings are redacted before reaching your AI assistant.
-- **No ingress**: Communicates over stdio via `kubectl exec`. No exposed ports, no load balancers.
-- **NetworkPolicy**: The Helm chart deploys a `NetworkPolicy` restricting egress to only your observability stack.
-- **RBAC**: A scoped `ClusterRole` grants read-only access to events, nodes, deployments, HPAs, and replicasets.
+- **Read-only**: All 23 tools are strictly read-only. No write, delete, or mutation operations anywhere in the codebase.
+- **No ingress**: Communicates over stdio via `kubectl exec`. No exposed ports, no load balancers, no API key to rotate. Note the corollary: `exec` access to the pod is equivalent to read access to your telemetry, so restrict it accordingly.
+- **RBAC**: A scoped `ClusterRole` grants `get`/`list` on events, nodes, deployments, replicasets, and HPAs. No `watch`, no wildcards, no `secrets`, no `pods/exec`, no `pods/log`.
+- **NetworkPolicy**: Restricts egress to your observability stack, DNS, and — only when the AWS tools are enabled — outbound HTTPS. Set `networkPolicy.allowAwsApiEgress=false` to remove that last rule.
+- **Redaction**: Best-effort regex scrubbing of AWS access keys, JWTs, bearer tokens, `password=`-style assignments, database URIs, emails, and card/SSN patterns before output reaches your assistant. It catches the textbook cases; it does **not** catch modern token formats (`ghp_`, `xoxb-`, `sk_live_`), unlabelled secrets, or Prometheus label values and RDS Performance Insights SQL text. Treat it as defence in depth rather than a compliance boundary — see the [Security wiki page](https://github.com/kubeopsai/k8s-telemetry-mcp/wiki/Security) for the full list of what is and is not covered.
+- **Container**: non-root (uid 1001), read-only root filesystem, all capabilities dropped.
+
+### What runs in the pod
+
+The MCP protocol here is stdio-based, and your assistant starts its own server process
+through `kubectl exec`. The pod's own process is a small host
+(`k8s-telemetry-mcp-host`) that keeps the pod alive for those sessions and answers the
+health probes. If you were expecting a long-running server listening on a port, there
+isn't one — that is by design.
 
 ---
 
@@ -181,7 +200,24 @@ All settings use the `MCP_` prefix:
 
 ```bash
 pip install -e ".[dev]"
-MCP_LOCAL_DEV=true MCP_LOKI_URL=http://localhost:3100 MCP_PROMETHEUS_URL=http://localhost:9090 python -m src.server
+
+MCP_LOKI_URL=http://localhost:3100 \
+MCP_PROMETHEUS_URL=http://localhost:9090 \
+python -m k8s_telemetry_mcp.server
+```
+
+The server reads MCP requests on stdin, so run it from a terminal and paste a request, or
+point a local assistant at it. A quick handshake check:
+
+```bash
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | python -m k8s_telemetry_mcp.server
+```
+
+Before opening a PR:
+
+```bash
+ruff check k8s_telemetry_mcp/ tests/
+pytest
 ```
 
 ---
@@ -224,7 +260,7 @@ That's exactly what [Promtops Agent](https://kubeopsai.net) does.
 
 ## 🤖 Promtops Agent — Automated Incident Response
 
-Promtops hooks into your Alertmanager webhooks. When an alert fires at 3 AM, it runs this diagnostic engine across all 22 tools and posts a complete root-cause analysis to your Slack incident channel — **before PagerDuty even wakes your engineer up.**
+Promtops hooks into your Alertmanager webhooks. When an alert fires at 3 AM, it runs this diagnostic engine across all 23 tools and posts a complete root-cause analysis to your Slack incident channel — **before PagerDuty even wakes your engineer up.**
 
 > **Read-only by design.** The agent investigates and explains. Your engineer makes the call and runs the fix. This is exactly why security teams approve it in 5 minutes instead of 6 months.
 

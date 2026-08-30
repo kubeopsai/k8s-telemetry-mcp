@@ -25,8 +25,13 @@ spec:
         - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # The image entrypoint is the MCP server itself, which speaks over stdio.
+          # A Deployment gives it no stdin, so it would read EOF and exit immediately
+          # (CrashLoopBackOff). Assistants connect with `kubectl exec`, which starts
+          # its own server process, so the pod's job is to host those sessions.
+          command: ["k8s-telemetry-mcp-host"]
           env:
             - name: MCP_LOKI_URL
               value: {{ .Values.config.lokiUrl | quote }}
@@ -40,11 +45,21 @@ spec:
               value: {{ .Values.config.tempoUrl | quote }}
             - name: MCP_TEMPO_TIMEOUT
               value: {{ .Values.config.tempoTimeout | quote }}
-            {{- if .Values.config.datadogApiKey }}
+            {{- if or .Values.config.datadogApiKey .Values.config.datadogExistingSecret }}
+            {{- $ddSecret := .Values.config.datadogExistingSecret | default (printf "%s-datadog" (include "k8s-telemetry-mcp.fullname" .)) }}
+            # Sourced from a Secret rather than an inline value: plain env values are
+            # visible in `helm get values`, the Deployment spec, and `kubectl describe`.
             - name: MCP_DATADOG_API_KEY
-              value: {{ .Values.config.datadogApiKey | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $ddSecret }}
+                  key: {{ .Values.config.datadogApiKeySecretKey | default "api-key" }}
             - name: MCP_DATADOG_APP_KEY
-              value: {{ .Values.config.datadogAppKey | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $ddSecret }}
+                  key: {{ .Values.config.datadogAppKeySecretKey | default "app-key" }}
+                  optional: true
             - name: MCP_DATADOG_SITE
               value: {{ .Values.config.datadogSite | default "datadoghq.com" | quote }}
             {{- end }}
@@ -62,12 +77,6 @@ spec:
               value: {{ .Values.config.maxQueryRangeHours | quote }}
             - name: MCP_LOG_LEVEL
               value: {{ .Values.config.logLevel | quote }}
-            - name: MCP_AWS_MARKETPLACE_PRODUCT_CODE
-              value: {{ .Values.config.marketplaceProductCode | quote }}
-            - name: MCP_MARKETPLACE_TIER
-              value: {{ .Values.config.marketplaceTier | quote }}
-            - name: MCP_LOCAL_DEV
-              value: "false"
             {{- if .Values.config.alertmanagerUrl }}
             - name: MCP_ALERTMANAGER_URL
               value: {{ .Values.config.alertmanagerUrl | quote }}
@@ -76,21 +85,18 @@ spec:
               value: {{ .Values.config.awsRegion | default "us-east-1" | quote }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          # Checks heartbeat freshness written by the host process. The previous probe
+          # ran `importlib.util.find_spec(...)`, which only reports whether a module is
+          # installed — it stayed green even with the process dead.
           livenessProbe:
             exec:
-              command:
-                - python
-                - -c
-                - "import importlib.util; assert importlib.util.find_spec('src') is not None"
-            initialDelaySeconds: 10
+              command: ["k8s-telemetry-mcp-host", "--check"]
+            initialDelaySeconds: 15
             periodSeconds: 30
             failureThreshold: 3
           readinessProbe:
             exec:
-              command:
-                - python
-                - -c
-                - "import importlib.util; assert importlib.util.find_spec('src') is not None"
+              command: ["k8s-telemetry-mcp-host", "--check"]
             initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 3

@@ -8,9 +8,9 @@ All tools are fully unlocked. No license required.
 
 import asyncio
 import json
-import re
 import time
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import httpx
 from mcp.server import MCPServer
@@ -50,7 +50,14 @@ from k8s_telemetry_mcp.tools.format import (
     fmt_k8s_events,
     fmt_recent_deployments,
 )
-from k8s_telemetry_mcp.validation import ValidationError, validate_identifier, validate_query, validate_trace_id
+from k8s_telemetry_mcp.validation import (
+    ValidationError,
+    validate_aws_resource_id,
+    validate_aws_resource_type,
+    validate_identifier,
+    validate_query,
+    validate_trace_id,
+)
 
 logger = setup_logging(log_level=settings.log_level, json_format=settings.log_level != "DEBUG")
 audit = get_audit_logger()
@@ -393,7 +400,17 @@ async def build_incident_timeline(
         now = datetime.now(UTC)
         start = now - timedelta(minutes=_clamp_minutes(timeframe_minutes))
         logs = await _require_log_client().query_logs(pod_name=service_name, namespace=namespace, start_time=start, end_time=now, limit=200)
-        metrics = await _require_metrics_client().get_pod_metrics(pod_name=service_name, namespace=namespace, metric_type="cpu")
+        # Keyed by metric type so the timeline builder can attribute each anomaly.
+        # Restarts matter most here: a non-zero count is a timeline event on its own.
+        metrics: dict[str, Any] = {}
+        for metric_type in ("cpu", "memory", "restarts"):
+            try:
+                metrics[metric_type] = await _require_metrics_client().get_pod_metrics(
+                    pod_name=service_name, namespace=namespace, metric_type=metric_type
+                )
+            except Exception as metric_error:
+                logger.debug(f"build_incident_timeline: {metric_type} unavailable: {metric_error}")
+                metrics[metric_type] = None
         traces = await _require_trace_client().search_traces(service_name=service_name, start_time=start, end_time=now, limit=50) if _trace_client else []
         timeline = timeline_builder.build(logs, metrics, traces, service_name)
         timeline.update({"namespace": namespace, "timeframe_minutes": timeframe_minutes})
@@ -435,7 +452,22 @@ async def enrich_alert(
             except Exception:
                 metrics[mt] = None
         traces = await _require_trace_client().search_traces(service_name=service_name, start_time=start, end_time=now, limit=20) if _trace_client else []
-        enriched = alert_enricher.enrich(alert_name, service_name, namespace, logs, metrics, traces)
+        # A recent rollout is the single most common cause of a firing alert, and
+        # AlertEnricher already accepts it — it was simply never passed, so the
+        # "deployments" context was always empty.
+        recent_deployments: list[dict] = []
+        if _k8s_client is not None:
+            try:
+                deploy_result = await _k8s_client.get_recent_deployments(
+                    namespace=namespace, timeframe_minutes=max(1, min(timeframe_minutes, 60))
+                )
+                recent_deployments = deploy_result.get("deployments", []) or []
+            except Exception as deploy_error:
+                logger.debug(f"enrich_alert: recent deployments unavailable: {deploy_error}")
+        enriched = alert_enricher.enrich(
+            alert_name, service_name, namespace, logs, metrics, traces,
+            recent_deployments=recent_deployments,
+        )
         enriched["timeframe_minutes"] = timeframe_minutes
         audit.log_tool_call("enrich_alert", {"alert_name": alert_name}, True, (time.perf_counter() - t0) * 1000)
         return fmt_enrich_alert(enriched)
@@ -464,9 +496,16 @@ async def get_resource_costs(
         client = _require_metrics_client()
         if not isinstance(client, PrometheusClient):
             return json.dumps({"error": "get_resource_costs requires the Prometheus backend."})
-        ns_filter = f'namespace="{namespace}"' if namespace else ""
-        cpu_results = await client.query_instant(f"sum(rate(container_cpu_usage_seconds_total{{{ns_filter}}}[{_clamp_minutes(timeframe_minutes)}m])) by (namespace)")
-        mem_results = await client.query_instant(f"sum(container_memory_working_set_bytes{{{ns_filter}}}) by (namespace)")
+        # cAdvisor emits both per-container series and a pod-level aggregate with an
+        # empty `container` label. Summing everything double-counted every pod, so the
+        # reported cores, GB and dollar figures were roughly 2x actual usage.
+        selectors = ['container!=""', 'image!=""']
+        if namespace:
+            selectors.insert(0, f'namespace="{namespace}"')
+        metric_selector = ",".join(selectors)
+        rate_window = _clamp_minutes(timeframe_minutes)
+        cpu_results = await client.query_instant(f"sum(rate(container_cpu_usage_seconds_total{{{metric_selector}}}[{rate_window}m])) by (namespace)")
+        mem_results = await client.query_instant(f"sum(container_memory_working_set_bytes{{{metric_selector}}}) by (namespace)")
         cpu_usage = {r.get("metric", {}).get("namespace", "unknown"): r.get("value", 0) or 0 for r in cpu_results}
         mem_usage = {r.get("metric", {}).get("namespace", "unknown"): r.get("value", 0) or 0 for r in mem_results}
         analysis = cost_analyzer.analyze(cpu_usage, mem_usage)
@@ -595,6 +634,51 @@ async def get_resource_history(
     except Exception as e:
         audit.log_tool_call("get_resource_history", {}, False, (time.perf_counter() - t0) * 1000, str(e))
         return _error_response(e, "get_resource_history")
+
+
+@mcp.tool()
+async def get_configuration_history(
+    resource_type: str,
+    resource_id: str,
+    timeframe_hours: int = 24,
+    limit: int = 20,
+) -> str:
+    """Get the configuration-change history for one AWS resource, with field-level diffs.
+
+    Answers "what actually changed on this resource, and when". CloudTrail records that
+    an API call happened; AWS Config records the resulting state, so this is what tells
+    you a security group's ingress rules went from one value to another.
+
+    Each change carries a capture time and a config_item_id for citation, plus the
+    resources AWS Config considers related — useful for establishing whether a changed
+    resource is actually connected to a failing one.
+
+    Requires AWS Config to be enabled and config:GetResourceConfigHistory.
+
+    Args:
+        resource_type: AWS Config resource type, e.g. 'AWS::EC2::SecurityGroup'
+        resource_id: Resource ID, e.g. 'sg-0123456789abcdef0'
+        timeframe_hours: How far back to look (1-720)
+        limit: Maximum configuration snapshots to retrieve (1-100)
+    """
+    request_id_var.set(generate_request_id())
+    t0 = time.perf_counter()
+    try:
+        resource_type = validate_aws_resource_type(resource_type)
+        resource_id = validate_aws_resource_id(resource_id)
+        now = datetime.now(UTC)
+        result = await _awsconfig_client.get_configuration_history(
+            resource_type=resource_type,
+            resource_id=resource_id,
+            start_time=now - timedelta(hours=max(1, min(timeframe_hours, 720))),
+            end_time=now,
+            limit=max(1, min(limit, 100)),
+        )
+        audit.log_tool_call("get_configuration_history", {"resource_id": resource_id[:40]}, True, (time.perf_counter() - t0) * 1000)
+        return json.dumps(result, indent=2, default=str)
+    except Exception as e:
+        audit.log_tool_call("get_configuration_history", {}, False, (time.perf_counter() - t0) * 1000, str(e))
+        return _error_response(e, "get_configuration_history")
 
 
 @mcp.tool()

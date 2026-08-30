@@ -1,14 +1,5 @@
 """Tools package for K8s Telemetry MCP Server."""
 
-from k8s_telemetry_mcp.tools.format import (
-    fmt_analyze_logs,
-    fmt_build_incident_timeline,
-    fmt_check_slo_status,
-    fmt_enrich_alert,
-    fmt_get_resource_costs,
-    fmt_k8s_events,
-    fmt_recent_deployments,
-)
 from k8s_telemetry_mcp.tools.alertmanager import AlertmanagerClient
 from k8s_telemetry_mcp.tools.analytics import (
     AlertEnricher,
@@ -23,6 +14,15 @@ from k8s_telemetry_mcp.tools.cloudwatch import CloudWatchClient
 from k8s_telemetry_mcp.tools.database import DatabaseInsightsClient
 from k8s_telemetry_mcp.tools.datadog import DatadogClient
 from k8s_telemetry_mcp.tools.ecr import ECRClient
+from k8s_telemetry_mcp.tools.format import (
+    fmt_analyze_logs,
+    fmt_build_incident_timeline,
+    fmt_check_slo_status,
+    fmt_enrich_alert,
+    fmt_get_resource_costs,
+    fmt_k8s_events,
+    fmt_recent_deployments,
+)
 from k8s_telemetry_mcp.tools.kubernetes import KubernetesClient
 from k8s_telemetry_mcp.tools.loki import LokiClient
 from k8s_telemetry_mcp.tools.prometheus import PrometheusClient
@@ -45,4 +45,11 @@ __all__ = [
     "PrometheusClient",
     "SLOChecker",
     "TempoClient",
+    "fmt_analyze_logs",
+    "fmt_build_incident_timeline",
+    "fmt_check_slo_status",
+    "fmt_enrich_alert",
+    "fmt_get_resource_costs",
+    "fmt_k8s_events",
+    "fmt_recent_deployments",
 ]

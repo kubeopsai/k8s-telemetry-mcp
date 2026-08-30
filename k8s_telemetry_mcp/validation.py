@@ -5,6 +5,13 @@ import re
 # Valid characters for identifiers (pod names, namespaces, etc.)
 _IDENTIFIER_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$")
 
+# AWS Config resource types: 'AWS::EC2::SecurityGroup', 'AWS::RDS::DBInstance'.
+_AWS_RESOURCE_TYPE_RE = re.compile(r"^[A-Za-z0-9]+(::[A-Za-z0-9]+){2,}$")
+
+# AWS resource IDs and ARNs. Deliberately permissive about shape (IDs, bucket names and
+# full ARNs all differ) but strict about the character class.
+_AWS_RESOURCE_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._:/@=+-]*$")
+
 # Maximum lengths
 _MAX_IDENTIFIER_LENGTH = 253  # K8s max name length
 _MAX_QUERY_LENGTH = 4096
@@ -57,6 +64,52 @@ def validate_identifier(raw: str, field_name: str) -> str:
     # For non-regex, validate as K8s identifier
     if not _IDENTIFIER_RE.match(sanitized):
         raise ValidationError(f"{field_name} contains invalid characters")
+
+    return clean
+
+
+def validate_aws_resource_type(raw: str) -> str:
+    """Validate an AWS Config resource type, e.g. 'AWS::EC2::SecurityGroup'.
+
+    A dedicated validator rather than loosening validate_identifier: Kubernetes
+    identifiers must not contain colons, and AWS Config types always do.
+    """
+    if not raw:
+        raise ValidationError("resource_type cannot be empty")
+
+    clean = raw.strip()
+    if len(clean) > _MAX_IDENTIFIER_LENGTH:
+        raise ValidationError(f"resource_type exceeds maximum length of {_MAX_IDENTIFIER_LENGTH}")
+
+    if not _AWS_RESOURCE_TYPE_RE.match(repr(clean)[1:-1]):
+        raise ValidationError(
+            "resource_type must look like 'AWS::EC2::SecurityGroup' "
+            "(see AWS Config supported resource types)"
+        )
+    return clean
+
+
+def validate_aws_resource_id(raw: str) -> str:
+    """Validate an AWS resource ID or ARN.
+
+    AWS resource identifiers are too varied for a single strict pattern — 'sg-0abc123',
+    'i-0abc123', a bucket name, or a full ARN with slashes and colons. This bounds the
+    length and rejects whitespace, control characters, and the shell/quote characters
+    that would matter if the value were ever interpolated somewhere unsafe, rather than
+    pretending to know every valid shape.
+    """
+    if not raw:
+        raise ValidationError("resource_id cannot be empty")
+
+    clean = raw.strip()
+    if len(clean) > _MAX_IDENTIFIER_LENGTH:
+        raise ValidationError(f"resource_id exceeds maximum length of {_MAX_IDENTIFIER_LENGTH}")
+
+    sanitized = repr(clean)[1:-1]
+    if not _AWS_RESOURCE_ID_RE.match(sanitized):
+        raise ValidationError("resource_id contains invalid characters")
+    if _has_injection_pattern(sanitized):
+        raise ValidationError("resource_id contains invalid characters")
 
     return clean
 

@@ -5,7 +5,8 @@ replicaCount: 1
 
 image:
   repository: ghcr.io/kubeopsai/k8s-telemetry-mcp
-  tag: "1.1.1"
+  # Defaults to the chart's appVersion when left empty.
+  tag: ""
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -19,12 +20,14 @@ serviceAccount:
   annotations: {}
   name: ""
 
-# Pod security context
+# Pod security context.
+# uid/gid 1001 matches the `mcp` user created in the image; the chart previously
+# specified 1000, which did not correspond to any user in the container.
 podSecurityContext:
   runAsNonRoot: true
-  runAsUser: 1000
-  runAsGroup: 1000
-  fsGroup: 1000
+  runAsUser: 1001
+  runAsGroup: 1001
+  fsGroup: 1001
 
 # Container security context
 securityContext:
@@ -48,7 +51,19 @@ config:
   tempoUrl: ""
   tempoTimeout: 30
 
-  # Datadog backend (optional — set API/app keys to enable, overrides Loki/Prometheus)
+  # Datadog backend (optional — enabling it overrides Loki/Prometheus).
+  #
+  # Preferred: create the Secret yourself and reference it, so credentials never
+  # appear in your values file or in `helm get values` output:
+  #
+  #   kubectl create secret generic my-datadog \
+  #     --from-literal=api-key=... --from-literal=app-key=... -n monitoring
+  #   --set config.datadogExistingSecret=my-datadog
+  datadogExistingSecret: ""
+  datadogApiKeySecretKey: "api-key"
+  datadogAppKeySecretKey: "app-key"
+  # Convenience path: supplying a key inline generates a Secret for you. Simpler for
+  # a quick trial, but the value is then stored in the release.
   datadogApiKey: ""
   datadogAppKey: ""
   datadogSite: "datadoghq.com"  # use datadoghq.eu for EU region
@@ -103,7 +118,14 @@ rbac:
 # Network Policy
 networkPolicy:
   enabled: true
-  # Allow egress only to observability stack
+
+  # Egress to the observability stack.
+  #
+  # NOTE: this selector requires your observability namespace to carry the label
+  # `name: monitoring`. Kubernetes does not apply that automatically. Check with
+  # `kubectl get ns monitoring --show-labels` and add it if missing:
+  #   kubectl label namespace monitoring name=monitoring
+  # Otherwise every telemetry query will be blocked by this policy.
   egressRules:
     - to:
         - namespaceSelector:
@@ -116,3 +138,19 @@ networkPolicy:
           port: 9090  # Prometheus
         - protocol: TCP
           port: 3200  # Tempo
+        - protocol: TCP
+          port: 9093  # Alertmanager
+
+  # Namespace holding your DNS service. Scoped to kube-system by default instead of
+  # matching every namespace.
+  dnsNamespaceSelector:
+    kubernetes.io/metadata.name: kube-system
+
+  # The AWS-backed tools (query_cloudtrail, get_resource_history,
+  # get_resource_compliance, get_image_vulnerabilities, get_database_insights) need
+  # HTTPS to AWS service endpoints. Set false if you do not use them — that removes
+  # the only broad egress rule in this policy.
+  allowAwsApiEgress: true
+  # Optional: restrict AWS egress to specific CIDRs, e.g. your VPC endpoint subnets.
+  # Leaving this empty permits 443 to any destination.
+  awsEndpointCidrs: []

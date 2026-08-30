@@ -2,6 +2,7 @@
 
 import re
 from re import Pattern
+from typing import Any
 
 # Compiled regex patterns for performance
 PATTERNS: list[tuple[str, Pattern[str]]] = [
@@ -53,31 +54,41 @@ def sanitize(text: str, enabled: bool = True) -> str:
     return result
 
 
+_MAX_SANITIZE_DEPTH = 12
+
+
+def sanitize_structure(value: Any, enabled: bool = True, _depth: int = 0) -> Any:
+    """Recursively sanitize every string inside an arbitrarily nested structure.
+
+    Log entries frequently arrive with nested payloads — a JSON-formatted log line
+    parsed into objects, a list of dicts, labels inside labels. Walking only the top
+    two levels meant anything deeper reached the LLM unredacted.
+
+    Depth is capped to guarantee termination on pathological input; anything below the
+    cap is returned untouched rather than silently dropped.
+    """
+    if not enabled or _depth > _MAX_SANITIZE_DEPTH:
+        return value
+    if isinstance(value, str):
+        return sanitize(value, enabled)
+    if isinstance(value, dict):
+        return {k: sanitize_structure(v, enabled, _depth + 1) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        cleaned = [sanitize_structure(v, enabled, _depth + 1) for v in value]
+        return type(value)(cleaned) if isinstance(value, tuple) else cleaned
+    return value
+
+
 def sanitize_logs(logs: list[dict], enabled: bool = True) -> list[dict]:
-    """Sanitize a list of log entries.
-    
+    """Sanitize a list of log entries at any nesting depth.
+
     Args:
         logs: List of log entry dictionaries
         enabled: Whether sanitization is enabled
-        
+
     Returns:
         List of sanitized log entries
     """
     if not enabled:
         return logs
-
-    sanitized = []
-    for entry in logs:
-        sanitized_entry = {}
-        for key, value in entry.items():
-            if isinstance(value, str):
-                sanitized_entry[key] = sanitize(value, enabled)
-            elif isinstance(value, dict):
-                sanitized_entry[key] = {
-                    k: sanitize(v, enabled) if isinstance(v, str) else v
-                    for k, v in value.items()
-                }
-            else:
-                sanitized_entry[key] = value
-        sanitized.append(sanitized_entry)
-    return sanitized
+    return [sanitize_structure(entry, enabled) for entry in logs]
