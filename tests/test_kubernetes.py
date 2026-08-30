@@ -213,7 +213,7 @@ class TestGetPodStatus:
 # causal claim, so parsing must refuse rather than guess.
 # ---------------------------------------------------------------------------
 
-from k8s_telemetry_mcp.tools.kubernetes import _instance_id_from_provider_id  # noqa: E402
+from k8s_telemetry_mcp.tools.kubernetes import _instance_id_from_provider_id
 
 
 def _node(name="ip-10-0-1-5", provider_id="aws:///eu-central-1a/i-0abc123def456"):
