@@ -64,6 +64,144 @@ def client():
     return c
 
 
+def _k8s_event(name="checkout-api-7d9f", kind="Pod", reason="Unhealthy", type_="Warning",
+               message="Readiness probe failed", count=1, uid="evt-uid-1",
+               last_timestamp="use-default", first_timestamp="use-default",
+               event_time=None, source_component="kubelet"):
+    """Mirrors the real kubernetes-client CoreV1Event shape this code reads from.
+
+    The SDK returns real datetime objects for these fields (already parsed from the API
+    response), not strings — the client code calls .replace(tzinfo=UTC) and .isoformat()
+    on them directly, so a string fixture would raise AttributeError rather than
+    exercising the real behaviour. Timestamps default to "just now" rather than a fixed
+    date, since get_events filters out anything older than the requested timeframe.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    now = datetime.now(UTC)
+    if last_timestamp == "use-default":
+        last_timestamp = now - timedelta(minutes=1)
+    if first_timestamp == "use-default":
+        first_timestamp = now - timedelta(minutes=15)
+
+    return SimpleNamespace(
+        metadata=SimpleNamespace(uid=uid),
+        type=type_,
+        reason=reason,
+        message=message,
+        count=count,
+        involved_object=SimpleNamespace(kind=kind, name=name),
+        last_timestamp=last_timestamp,
+        first_timestamp=first_timestamp,
+        event_time=event_time,
+        source=SimpleNamespace(component=source_component),
+    )
+
+
+class TestGetK8sEvents:
+    """No coverage previously existed for this method. That is how the reconstruction
+    engine's k8s_event normaliser could read `last_timestamp`/`involved_object` — a shape
+    this method has never actually returned — for as long as it existed: nothing here
+    exercised the real payload shape against the real consumer."""
+
+    async def test_the_payload_shape_is_flat_not_nested(self, client):
+        """This is the exact shape a downstream reconstruction consumer must match.
+        Pinning it here means a future change to this method's output shape breaks this
+        test before it silently breaks every consumer that reads it."""
+        client._core.list_namespaced_event.return_value = SimpleNamespace(items=[_k8s_event()])
+
+        result = await client.get_events(namespace="prod")
+        event = result["events"][0]
+
+        assert event["object_name"] == "checkout-api-7d9f"
+        assert event["object_kind"] == "Pod"
+        assert "involved_object" not in event
+        assert isinstance(event["last_time"], str), "must be serialised, not a raw datetime"
+        assert isinstance(event["first_time"], str)
+        assert "last_timestamp" not in event
+        assert "first_timestamp" not in event
+
+    async def test_the_kubernetes_event_uid_is_surfaced(self, client):
+        """Added so reconstruction can cite a real Kubernetes UID as evidence instead of
+        a synthesised reference string."""
+        client._core.list_namespaced_event.return_value = SimpleNamespace(items=[_k8s_event(uid="evt-abc-123")])
+        result = await client.get_events(namespace="prod")
+        assert result["events"][0]["uid"] == "evt-abc-123"
+
+    async def test_a_missing_uid_is_none_not_a_crash(self, client):
+        client._core.list_namespaced_event.return_value = SimpleNamespace(
+            items=[_k8s_event(uid=None)],
+        )
+        result = await client.get_events(namespace="prod")
+        assert result["events"][0]["uid"] is None
+
+    async def test_warning_events_are_counted(self, client):
+        client._core.list_namespaced_event.return_value = SimpleNamespace(
+            items=[_k8s_event(type_="Warning"), _k8s_event(type_="Normal", reason="Pulled")],
+        )
+        result = await client.get_events(namespace="prod")
+        assert result["total_events"] == 2
+        assert result["warning_count"] == 1
+
+    async def test_event_type_filter(self, client):
+        client._core.list_namespaced_event.return_value = SimpleNamespace(
+            items=[_k8s_event(type_="Warning"), _k8s_event(type_="Normal", reason="Pulled")],
+        )
+        result = await client.get_events(namespace="prod", event_type="Warning")
+        assert len(result["events"]) == 1
+        assert result["events"][0]["type"] == "Warning"
+
+    async def test_pod_name_filter_matches_a_substring(self, client):
+        client._core.list_namespaced_event.return_value = SimpleNamespace(items=[
+            _k8s_event(name="checkout-api-7d9f"),
+            _k8s_event(name="unrelated-svc-abc"),
+        ])
+        result = await client.get_events(namespace="prod", pod_name="checkout-api")
+        assert len(result["events"]) == 1
+        assert result["events"][0]["object_name"] == "checkout-api-7d9f"
+
+    async def test_events_older_than_the_timeframe_are_excluded(self, client):
+        from datetime import UTC, datetime, timedelta
+
+        old_time = datetime.now(UTC) - timedelta(hours=2)
+        client._core.list_namespaced_event.return_value = SimpleNamespace(
+            items=[_k8s_event(last_timestamp=old_time, first_timestamp=old_time)],
+        )
+        result = await client.get_events(namespace="prod", timeframe_minutes=60)
+        assert result["events"] == []
+
+    async def test_falls_back_to_event_time_when_last_timestamp_is_absent(self, client):
+        """Some event sources only populate eventTime, not the legacy
+        firstTimestamp/lastTimestamp pair."""
+        from datetime import UTC, datetime, timedelta
+
+        recent = datetime.now(UTC) - timedelta(minutes=1)
+        client._core.list_namespaced_event.return_value = SimpleNamespace(items=[
+            _k8s_event(last_timestamp=None, first_timestamp=None, event_time=recent),
+        ])
+        result = await client.get_events(namespace="prod")
+        assert result["events"][0]["last_time"] == recent.isoformat()
+
+    async def test_a_secret_in_the_message_is_redacted(self, client):
+        client._core.list_namespaced_event.return_value = SimpleNamespace(items=[
+            _k8s_event(message="failed to connect: postgres://admin:hunter2@db:5432/app"),
+        ])
+        result = await client.get_events(namespace="prod")
+        assert "hunter2" not in result["events"][0]["message"]
+
+    async def test_no_events_returns_an_empty_list_not_an_error(self, client):
+        client._core.list_namespaced_event.return_value = SimpleNamespace(items=[])
+        result = await client.get_events(namespace="prod")
+        assert result["events"] == []
+        assert result["total_events"] == 0
+
+    async def test_an_api_error_is_reported_not_raised(self, client):
+        client._core.list_namespaced_event.side_effect = RuntimeError("boom")
+        result = await client.get_events(namespace="prod")
+        assert "error" in result
+        assert result["events"] == []
+
+
 class TestGetPodStatus:
     async def test_returns_pod_details(self, client):
         client._core.list_namespaced_pod.return_value = SimpleNamespace(items=[_pod()])

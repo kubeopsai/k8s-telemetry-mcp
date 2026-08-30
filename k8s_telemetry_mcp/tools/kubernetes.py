@@ -213,6 +213,7 @@ class KubernetesClient:
                 continue
 
             events.append({
+                "uid": ev.metadata.uid if ev.metadata else None,
                 "type": ev.type,
                 "reason": ev.reason,
                 "message": sanitize(ev.message or ""),

@@ -8,6 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > Entries for 1.0.3 through 1.1.3 were never written up. The 1.2.0 entry below covers
 > the correctness work; consult `git log` for the intervening feature releases.
 
+## [1.2.5] - 2026-08-30
+
+### Fixed
+
+- **`get_events` returned field names that no collector ever read, so every Kubernetes
+  event was silently dropped from every reconstruction since this tool existed.** Found
+  running a live end-to-end test against a real EKS cluster: a genuine `Unhealthy`
+  readiness-probe event never appeared in a report even though the pod, node and AWS
+  side of the same incident all did. The tool's own normalizer wrote `last_timestamp`
+  and a nested `involved_object.name`/`involved_object.kind`; the real Kubernetes events
+  API (and every downstream reader, in this repo and in Promtops) expected `last_time`
+  and flat `object_name`/`object_kind`. This went undetected because the test fixtures
+  for `get_events` were written to match the same wrong shape as the buggy code, so the
+  tests passed while the feature never worked. Fixed the normalizer to emit the real
+  field names, added a real Kubernetes event `uid` to the output (previously absent, so
+  callers had no stable identifier to cite as evidence), and corrected
+  `format.py::fmt_k8s_events`, which had the identical wrong field names and zero test
+  coverage. Confirmed against a real EKS cluster: a `checkout-api` pod's `Unhealthy`
+  event now appears in the rendered report with its real UID as the evidence reference.
+
+- **The `PHONE` sanitizer pattern redacted EKS's own auto-generated resource name
+  suffixes.** `eks-cluster-sg-promtops-topology-test-1863340737` became
+  `...-[REDACTED_PHONE]` because the pattern matched any bare run of 10 digits with all
+  separators optional, and EKS appends a 10-digit numeric suffix to generated names.
+  Fixed to require at least one delimiter between digit groups, so a real phone number
+  (`555-123-4567`, `(555) 123-4567`) is still redacted while a bare 10-digit numeric
+  suffix with no delimiters is not mistaken for one.
+
 ## [1.2.4] - 2026-08-30
 
 ### Added

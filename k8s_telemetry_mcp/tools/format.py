@@ -11,9 +11,14 @@ from __future__ import annotations
 
 
 def fmt_k8s_events(result: dict) -> str:
+    # Confirmed against a real cluster: get_k8s_events returns a flat "object_name" /
+    # "object_kind" and "last_time" / "first_time", never a nested "involved_object" or
+    # "last_timestamp". Those wrong keys meant every event rendered with no name and no
+    # timestamp instead of raising — a formatting bug rather than a crash, so nothing
+    # surfaced it until a real payload was read directly.
     events = result.get("events", [])
     namespace = result.get("namespace", "unknown")
-    total = result.get("total_count", len(events))
+    total = result.get("total_events", len(events))
 
     if not events:
         return f"No Kubernetes events found in namespace `{namespace}`."
@@ -27,11 +32,10 @@ def fmt_k8s_events(result: dict) -> str:
         lines.append("⚠️  **Warnings**")
         for e in warnings[:15]:
             reason = e.get("reason", "Unknown")
-            obj = e.get("involved_object", {})
-            name = obj.get("name", e.get("name", "unknown"))
+            name = e.get("object_name", "unknown")
             msg = e.get("message", "")[:120]
             count = e.get("count", 1)
-            ts = e.get("last_timestamp") or e.get("first_timestamp", "")
+            ts = e.get("last_time") or e.get("first_time", "")
             count_str = f" ×{count}" if count > 1 else ""
             lines.append(f"  • `{reason}`{count_str} — **{name}**")
             if msg:
@@ -43,8 +47,7 @@ def fmt_k8s_events(result: dict) -> str:
         lines.append("\nℹ️  **Normal Events** (recent)")
         for e in normals[:5]:
             reason = e.get("reason", "Unknown")
-            obj = e.get("involved_object", {})
-            name = obj.get("name", e.get("name", "unknown"))
+            name = e.get("object_name", "unknown")
             lines.append(f"  • `{reason}` — {name}")
 
     return "\n".join(lines)

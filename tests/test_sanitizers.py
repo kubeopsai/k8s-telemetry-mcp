@@ -71,6 +71,39 @@ class TestPrivateIpVsCidrNotation:
         result = sanitize_structure(payload)
         assert result["ipv4Ranges"][0]["cidrIp"] == "10.0.0.0/8"
 
+
+class TestPhoneNumberVsResourceIdentifier:
+    """Found live on a real EKS cluster: the auto-generated security group name
+    'eks-cluster-sg-promtops-topology-test-1863340737' was redacted to
+    '...-[REDACTED_PHONE]' because its bare 10-digit numeric suffix matched a phone
+    pattern whose separators were all optional — meaning it matched any 10 consecutive
+    digits with no formatting required at all. AWS and Kubernetes resource names,
+    account ids, and numeric suffixes routinely contain undelimited digit runs; a real
+    phone number in structured or log text is essentially always written with at least
+    one delimiter."""
+
+    def test_a_bare_resource_suffix_is_not_redacted(self):
+        text = "eks-cluster-sg-promtops-topology-test-1863340737"
+        result = sanitize(text)
+        assert "1863340737" in result
+        assert "REDACTED" not in result
+
+    def test_a_bare_undelimited_digit_run_is_not_redacted(self):
+        """Ambiguous on its own; treated as not-a-phone rather than guessing, since a
+        false redaction destroys evidence and a missed one is merely a known limit."""
+        assert sanitize("account 5551234567 balance") == "account 5551234567 balance"
+
+    @pytest.mark.parametrize("phone", [
+        "555-123-4567",
+        "(555) 123-4567",
+        "555.123.4567",
+        "+1-555-123-4567",
+    ])
+    def test_conventionally_formatted_phone_numbers_are_still_redacted(self, phone):
+        result = sanitize(f"call {phone} for support")
+        assert phone not in result
+        assert "[REDACTED_PHONE]" in result
+
     def test_benign_text_is_untouched(self):
         msg = "Reconciling deployment checkout-api in namespace prod"
         assert sanitize(msg) == msg

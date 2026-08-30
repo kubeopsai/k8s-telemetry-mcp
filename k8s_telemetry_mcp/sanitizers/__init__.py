@@ -34,8 +34,23 @@ PATTERNS: list[tuple[str, Pattern[str]]] = [
     )),
     # Email Addresses
     ("EMAIL", re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b")),
-    # Phone Numbers
-    ("PHONE", re.compile(r"\b(?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}\b")),
+    # Phone Numbers. Found live: an EKS-generated security group name
+    # ("eks-cluster-sg-...-1863340737") ends in a bare 10-digit numeric suffix, which the
+    # previous pattern matched and redacted — every separator between digit groups was
+    # optional, so it matched any 10 consecutive digits regardless of formatting. A real
+    # phone number in structured or log text is essentially always written with at least
+    # one delimiter (dash, dot, space, or parens); a bare undelimited run of 10 digits is
+    # far more likely to be a resource id, account id, or timestamp component, and for
+    # this product those are exactly the evidence a reconstruction reports on. Requiring
+    # at least one separator between two of the three groups keeps typical phone formats
+    # ("555-123-4567", "(555) 123-4567", "555.123.4567") while no longer matching bare
+    # digit runs with no formatting at all.
+    ("PHONE", re.compile(
+        r"\b(?:\+?1[-.\s])?(?:"
+        r"\(?[0-9]{3}\)?[-.\s][0-9]{3}[-.\s]?[0-9]{4}"       # separator after group 1
+        r"|\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s][0-9]{4}"      # separator after group 2
+        r")\b"
+    )),
     # Kubernetes Secrets (base64 encoded)
     ("K8S_SECRET", re.compile(r"(?i)(?:data|stringData):\s*\n(?:\s+[a-zA-Z0-9_-]+:\s*[A-Za-z0-9+/=]{20,}\n?)+")),
     # Database Connection Strings
