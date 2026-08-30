@@ -8,6 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > Entries for 1.0.3 through 1.1.3 were never written up. The 1.2.0 entry below covers
 > the correctness work; consult `git log` for the intervening feature releases.
 
+## [1.2.4] - 2026-08-30
+
+### Added
+
+- **`query_cloudtrail` and `get_resource_history` now report the resource type alongside
+  each resource name.** Every CloudTrail event's `Resources` entry carries a `ResourceType`
+  (confirmed against a real `RevokeSecurityGroupIngress` call: CloudTrail returned
+  `AWS::EC2::SecurityGroup` alongside the security group id), and this was previously
+  discarded — the `resources` field was a bare list of names, so nothing downstream could
+  tell a security group id from an RDS instance id without already being told the type.
+  A new `resource_details` field carries `{resource_type, resource_name}` pairs; the
+  existing `resources` field is unchanged for backward compatibility. This is what lets
+  Promtops discover which AWS resources to deepen an AWS Config lookup on automatically,
+  without the caller already having to name them.
+
 ## [1.2.3] - 2026-08-30
 
 ### Fixed

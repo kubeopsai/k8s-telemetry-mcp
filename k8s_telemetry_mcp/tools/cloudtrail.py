@@ -47,12 +47,25 @@ def _bare_resource_name(resource_id: str) -> str:
 
 def _sanitize_event(event: dict) -> dict:
     """Sanitize a CloudTrail event, redacting sensitive fields."""
+    resources = event.get("Resources", [])
     result = {
         "event_id": event.get("EventId"),
         "event_name": event.get("EventName"),
         "event_time": event.get("EventTime").isoformat() if event.get("EventTime") else None,
         "username": event.get("Username"),
-        "resources": [r.get("ResourceName") for r in event.get("Resources", [])],
+        # Bare names, kept for backward compatibility with existing callers.
+        "resources": [r.get("ResourceName") for r in resources],
+        # CloudTrail returns the resource type alongside its name for most mutating
+        # calls (confirmed live: RevokeSecurityGroupIngress -> AWS::EC2::SecurityGroup).
+        # This was previously discarded, which meant nothing downstream could tell a
+        # security group ID from an RDS instance ID without the caller already knowing
+        # and supplying the type — the exact fact that made auto-discovering which AWS
+        # resources to deepen on with AWS Config impossible.
+        "resource_details": [
+            {"resource_type": r.get("ResourceType"), "resource_name": r.get("ResourceName")}
+            for r in resources
+            if r.get("ResourceName")
+        ],
     }
     raw = event.get("CloudTrailEvent", "{}")
     try:

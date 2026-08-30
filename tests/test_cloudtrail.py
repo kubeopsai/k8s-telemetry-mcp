@@ -81,6 +81,32 @@ class TestSanitizeEvent:
     def test_empty_resources_gives_empty_list(self):
         assert _sanitize_event(_event(Resources=[]))["resources"] == []
 
+    def test_resource_details_carries_the_type_alongside_the_name(self):
+        """Confirmed against a real RevokeSecurityGroupIngress event: CloudTrail returns
+        ResourceType and ResourceName together. Discarding the type meant nothing
+        downstream could tell a security group id from an RDS instance id without
+        already being told, which blocked auto-discovering which resources to deepen
+        an AWS Config lookup on."""
+        result = _sanitize_event(_event())
+        assert result["resource_details"] == [
+            {"resource_type": "AWS::S3::Bucket", "resource_name": "my-bucket"}
+        ]
+
+    def test_resource_details_is_empty_when_no_resources(self):
+        assert _sanitize_event(_event(Resources=[]))["resource_details"] == []
+
+    def test_a_resource_entry_missing_a_name_is_skipped(self):
+        """A resource without a name cannot be looked up in Config anyway."""
+        result = _sanitize_event(_event(Resources=[{"ResourceType": "AWS::EC2::SecurityGroup"}]))
+        assert result["resource_details"] == []
+
+    def test_a_resource_entry_missing_a_type_keeps_the_name_with_a_none_type(self):
+        """Some CloudTrail events (older API versions, some services) omit ResourceType.
+        The name is still useful; the caller must handle a None type rather than the
+        entry vanishing."""
+        result = _sanitize_event(_event(Resources=[{"ResourceName": "my-thing"}]))
+        assert result["resource_details"] == [{"resource_type": None, "resource_name": "my-thing"}]
+
     def test_secrets_in_detail_are_redacted(self):
         result = _sanitize_event(_event(detail={"userAgent": "curl password=hunter2"}))
         assert "hunter2" not in result["user_agent"]
