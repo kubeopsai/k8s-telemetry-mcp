@@ -63,41 +63,18 @@ config:
   logLevel: "INFO"
 ```
 
-### AWS Marketplace Image
+### Licensing
 
-If you purchased from AWS Marketplace:
+There is none. This MCP server is free and open source, needs no product code, no
+entitlement check and no marketplace IAM permissions, and it is not sold anywhere.
 
-```yaml
-image:
-  repository: 123456789012.dkr.ecr.us-east-1.amazonaws.com/k8s-telemetry-mcp
-  tag: "1.0.3"
+Earlier versions of this page documented `MCP_AWS_MARKETPLACE_PRODUCT_CODE` and
+`MCP_MARKETPLACE_TIER`. Nothing ever read those variables, and the Helm chart no longer
+sets them. If you have them in a values file, delete them.
 
-imagePullSecrets:
-  - name: aws-marketplace-secret
-
-# Required: your AWS Marketplace product code
-extraEnv:
-  - name: MCP_AWS_MARKETPLACE_PRODUCT_CODE
-    value: "<YOUR_PRODUCT_CODE>"
-  - name: MCP_MARKETPLACE_TIER
-    value: "professional"  # standard | professional | enterprise
-                           # Note: the server verifies this against your actual
-                           # entitlement via GetEntitlements and uses the purchased
-                           # tier if they differ.
-```
-
-> **Required IAM permissions** — attach both actions to your EKS node role:
->
-> ```json
-> {
->   "Effect": "Allow",
->   "Action": [
->     "aws-marketplace:RegisterUsage",
->     "marketplace-entitlement:GetEntitlements"
->   ],
->   "Resource": "*"
-> }
-> ```
+The paid product built on this server is
+[Promtops](https://github.com/kubeopsai/promtops-agent), which is sold on AWS Marketplace
+and carries its own entitlement checks and IAM requirements.
 
 ### Resource Limits
 

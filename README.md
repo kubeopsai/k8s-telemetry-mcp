@@ -287,7 +287,8 @@ Alerting fires at 3:14 AM
 - Zero human interaction required
 - Runs inside your cluster — your data never leaves your VPC
 - Bring your own LLM key (AWS Bedrock, Anthropic, OpenAI)
-- $199/month on AWS Marketplace
+- A separate commercial product, sold on AWS Marketplace. This MCP server is free and
+  open source, and stays that way — Promtops builds on it.
 
 👉 **[kubeopsai.net](https://kubeopsai.net)**
 
