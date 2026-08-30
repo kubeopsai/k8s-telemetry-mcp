@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > Entries for 1.0.3 through 1.1.3 were never written up. The 1.2.0 entry below covers
 > the correctness work; consult `git log` for the intervening feature releases.
 
+## [1.2.2] - 2026-08-31
+
+### Fixed
+
+- **`aws_region` defaulted to `us-east-1`, silently overriding the AWS environment.**
+  Found by running against a live account. boto3 already resolves a region from
+  `AWS_REGION`, `AWS_DEFAULT_REGION`, the shared config file and instance metadata, and a
+  hardcoded default shadowed all of it. On a cluster in any other region every CloudTrail,
+  AWS Config, ECR and RDS query went to us-east-1 and returned nothing — and an empty
+  result is indistinguishable from an account where nothing happened, so the tools reported
+  a confident "no activity found" instead of an error.
+
+  The default is now empty, which the clients pass through as `None` so boto3 performs its
+  own resolution. Set `MCP_AWS_REGION` only to target a region other than the one the pod
+  runs in, such as us-east-1 for global IAM and CloudFront events.
+
 ## [1.2.1] - 2026-08-31
 
 ### Added

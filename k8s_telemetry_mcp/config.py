@@ -2,7 +2,7 @@
 
 from pydantic_settings import BaseSettings
 
-VERSION = "1.2.1"
+VERSION = "1.2.2"
 
 
 class Settings(BaseSettings):
@@ -32,8 +32,14 @@ class Settings(BaseSettings):
     # Alertmanager Configuration (optional)
     alertmanager_url: str = ""
 
-    # AWS region for CloudTrail, Config, ECR, RDS, ElastiCache tools
-    aws_region: str = "us-east-1"
+    # AWS region for CloudTrail, Config, ECR, RDS, ElastiCache tools.
+    #
+    # Empty means "let boto3 decide", which resolves AWS_REGION, AWS_DEFAULT_REGION, the
+    # shared config file and finally instance metadata. Hardcoding us-east-1 here silently
+    # overrode all of that: on a cluster in another region every AWS query went to
+    # us-east-1 and came back empty, which is indistinguishable from an account where
+    # nothing happened. Set it only to target a region other than the pod's own.
+    aws_region: str = ""
 
     # Security Settings
     enable_sanitization: bool = True
