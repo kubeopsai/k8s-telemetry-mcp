@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > Entries for 1.0.3 through 1.1.3 were never written up. The 1.2.0 entry below covers
 > the correctness work; consult `git log` for the intervening feature releases.
 
+## [1.3.0] - 2026-08-31
+
+### Added
+
+- **`ECSClient`** (`tools/ecs.py`) — `get_service_deployments` returns the deployment
+  history for an ECS service (task definition revision, desired/running/pending counts,
+  rollout state and reason, timestamps). `get_stopped_tasks` returns recently stopped
+  tasks with per-container exit codes and stop reasons — the ECS equivalent of
+  Kubernetes OOMKill/CrashLoop events.
+- **`EC2Client`** (`tools/ec2.py`) — `get_instance_state_changes` returns current
+  instance state, state reason, AMI, subnet, VPC, and attached security groups.
+  `get_security_group_rules` returns current ingress/egress rules for one or more
+  security groups. Pair both with CloudTrail and AWS Config history for the full
+  before/after picture.
+- **`LambdaClient`** (`tools/lambda_.py`) — `get_function_errors` returns CloudWatch
+  metric statistics (Errors, Throttles, Duration, Invocations, ConcurrentExecutions)
+  for a function over a window, with a derived error rate. `get_function_config`
+  returns the current function configuration (runtime, handler, memory, timeout,
+  environment variable keys, layers, last-update status) without exposing environment
+  variable values.
+- All three clients exported from `tools/__init__.py`.
+
 ## [1.2.0] - 2026-08-30
 
 ### Fixed
