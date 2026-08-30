@@ -8,6 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > Entries for 1.0.3 through 1.1.3 were never written up. The 1.2.0 entry below covers
 > the correctness work; consult `git log` for the intervening feature releases.
 
+## [1.2.3] - 2026-08-30
+
+### Fixed
+
+- **The PII sanitizer redacted CIDR network addresses, corrupting the exact evidence a
+  reconstruction reports on.** Found running `get_configuration_history` against a real
+  account: revoking a security group's ingress rule for `10.0.0.0/8` produced a
+  diff reading `[REDACTED_PRIVATE_IP]/8` instead of `10.0.0.0/8`. The `PRIVATE_IP` pattern
+  matched any four-octet RFC1918-shaped string with no regard for a following `/NN` — and
+  every real VPC uses an RFC1918 range, so this silently corrupted the flagship
+  "security group tightened" scenario for nearly every customer's account, on the one
+  field the report exists to preserve. A bare host IP with no CIDR suffix is still
+  redacted; only the network-address form in a CIDR block is exempted.
+
 ## [1.2.2] - 2026-08-31
 
 ### Fixed

@@ -40,6 +40,37 @@ class TestSanitizePatterns:
     def test_empty_string_is_safe(self):
         assert sanitize("") == ""
 
+
+class TestPrivateIpVsCidrNotation:
+    """Found live: an AWS Config security-group diff reported the revoked source range
+    as '[REDACTED_PRIVATE_IP]/8' instead of '10.0.0.0/8'. A CIDR network address in a
+    security group rule or a CloudTrail request is the evidence a reconstruction reports
+    on, not PII — and every real VPC uses an RFC1918 range, so this corrupted the
+    flagship "security group tightened" scenario for nearly every real customer."""
+
+    @pytest.mark.parametrize("cidr", [
+        "10.0.0.0/8",
+        "10.1.2.0/24",
+        "172.16.0.0/12",
+        "192.168.1.0/24",
+    ])
+    def test_cidr_notation_survives_intact(self, cidr):
+        text = f"ingress from {cidr}"
+        result = sanitize(text)
+        assert cidr in result
+        assert "REDACTED" not in result
+
+    def test_a_bare_host_ip_is_still_redacted(self):
+        """Only the CIDR suffix is exempted; a plain IP with no /NN is still PII."""
+        assert "[REDACTED_PRIVATE_IP]" in sanitize("peer 10.1.2.3 refused")
+        assert "10.1.2.3" not in sanitize("peer 10.1.2.3 refused")
+
+    def test_a_config_item_ip_range_field_is_not_corrupted(self):
+        """The exact shape AWS Config returns for a security group rule's source range."""
+        payload = {"ipv4Ranges": [{"cidrIp": "10.0.0.0/8", "description": "promtops-live-test"}]}
+        result = sanitize_structure(payload)
+        assert result["ipv4Ranges"][0]["cidrIp"] == "10.0.0.0/8"
+
     def test_benign_text_is_untouched(self):
         msg = "Reconciling deployment checkout-api in namespace prod"
         assert sanitize(msg) == msg

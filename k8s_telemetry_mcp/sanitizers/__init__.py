@@ -22,8 +22,16 @@ PATTERNS: list[tuple[str, Pattern[str]]] = [
     ("JWT", re.compile(r"\beyJ[A-Za-z0-9_-]*\.eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]*\b")),
     # Bearer Tokens
     ("BEARER", re.compile(r"(?i)bearer\s+[A-Za-z0-9_\-\.]+", re.IGNORECASE)),
-    # Private IPs (RFC 1918)
-    ("PRIVATE_IP", re.compile(r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2[0-9]|3[01])\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3})\b")),
+    # Private IPs (RFC 1918). The negative lookahead `(?!/\d)` excludes CIDR notation
+    # (e.g. "10.0.0.0/8" in a security group rule): a network range in AWS Config or
+    # CloudTrail data is the evidence a reconstruction reports on, not PII, and every
+    # real VPC uses an RFC1918 range, so redacting it would corrupt the flagship
+    # "security group tightened" scenario for nearly every customer. A bare host IP
+    # (no /NN suffix) in a log line is still redacted.
+    ("PRIVATE_IP", re.compile(
+        r"\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2[0-9]|3[01])\.\d{1,3}\.\d{1,3}|"
+        r"192\.168\.\d{1,3}\.\d{1,3})\b(?!/\d)"
+    )),
     # Email Addresses
     ("EMAIL", re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b")),
     # Phone Numbers

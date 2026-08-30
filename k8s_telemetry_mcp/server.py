@@ -1,6 +1,6 @@
 """K8s Telemetry MCP Server — Community Edition.
 
-Full 22-tool MCP server for Kubernetes observability.
+Full 23-tool MCP server for Kubernetes observability.
 Connect to Kiro, Claude Desktop, Amazon Q, or any MCP-compatible AI assistant.
 
 All tools are fully unlocked. No license required.
