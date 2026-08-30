@@ -202,3 +202,89 @@ class TestGetPodStatus:
 
         assert result["pod_filter"] == "payment-api-abc123"
         assert result["namespace"] == "prod"
+
+
+# ---------------------------------------------------------------------------
+# Node → EC2 instance identity
+#
+# `provider_id` is the only authoritative link between a Kubernetes node and the cloud
+# instance behind it. Incident reconstruction uses it to connect an AWS resource change
+# to an in-cluster symptom; a wrong instance id there produces a confident but false
+# causal claim, so parsing must refuse rather than guess.
+# ---------------------------------------------------------------------------
+
+from k8s_telemetry_mcp.tools.kubernetes import _instance_id_from_provider_id  # noqa: E402
+
+
+def _node(name="ip-10-0-1-5", provider_id="aws:///eu-central-1a/i-0abc123def456"):
+    return SimpleNamespace(
+        metadata=SimpleNamespace(name=name),
+        spec=SimpleNamespace(provider_id=provider_id),
+        status=SimpleNamespace(
+            conditions=[SimpleNamespace(type="Ready", status="True", message=None, reason=None)],
+            allocatable={"cpu": "2", "memory": "8Gi"},
+            capacity={"cpu": "2", "memory": "8Gi"},
+        ),
+    )
+
+
+class TestInstanceIdFromProviderId:
+    def test_standard_eks_provider_id(self):
+        assert _instance_id_from_provider_id("aws:///eu-central-1a/i-0abc123def456") == "i-0abc123def456"
+
+    def test_provider_id_without_a_zone_segment(self):
+        assert _instance_id_from_provider_id("aws:///i-0abc123def456") == "i-0abc123def456"
+
+    def test_trailing_slash_is_tolerated(self):
+        assert _instance_id_from_provider_id("aws:///eu-central-1a/i-0abc123/") == "i-0abc123"
+
+    @pytest.mark.parametrize("provider_id", [
+        None,
+        "",
+        "gce://project/zone/instance-1",       # different cloud
+        "azure:///subscriptions/x/vm-1",       # different cloud
+        "aws:///eu-central-1a/",               # empty instance segment
+        "aws:///eu-central-1a/fargate-pod-1",  # not an EC2 instance id
+    ])
+    def test_unparseable_or_non_ec2_returns_none(self, provider_id):
+        """Returning None keeps the reconstruction honest; a guess would fabricate a link."""
+        assert _instance_id_from_provider_id(provider_id) is None
+
+
+class TestNodePressureExposesInstanceIdentity:
+    @staticmethod
+    def _client_with(nodes):
+        client = KubernetesClient.__new__(KubernetesClient)
+        client._core = MagicMock()
+        client._core.list_node = MagicMock(return_value=SimpleNamespace(items=nodes))
+
+        async def _run(fn, *args, **kwargs):
+            return fn(*args, **kwargs)
+
+        client._run = _run
+        return client
+
+    async def test_node_entries_carry_provider_and_instance_id(self):
+        client = self._client_with([_node()])
+        result = await client.get_node_pressure()
+        node = result["all_nodes"][0]
+        assert node["provider_id"] == "aws:///eu-central-1a/i-0abc123def456"
+        assert node["instance_id"] == "i-0abc123def456"
+
+    async def test_a_node_without_a_provider_id_reports_none_not_an_error(self):
+        client = self._client_with([_node(provider_id=None)])
+        result = await client.get_node_pressure()
+        node = result["all_nodes"][0]
+        assert node["provider_id"] is None
+        assert node["instance_id"] is None
+        assert node["ready"] is True  # the rest of the payload is unaffected
+
+    async def test_existing_pressure_fields_are_unchanged(self):
+        """Guard against the addition altering the shape callers already depend on."""
+        client = self._client_with([_node()])
+        result = await client.get_node_pressure()
+        assert result["total_nodes"] == 1
+        assert result["pressure_count"] == 0
+        assert result["not_ready_count"] == 0
+        for key in ("allocatable_cpu", "capacity_memory", "memory_pressure", "conditions"):
+            assert key in result["all_nodes"][0]

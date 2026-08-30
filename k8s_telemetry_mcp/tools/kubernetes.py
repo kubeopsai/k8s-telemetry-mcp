@@ -32,6 +32,23 @@ def _load_k8s_config():
         k8s_config.load_kube_config()
 
 
+def _instance_id_from_provider_id(provider_id: str | None) -> str | None:
+    """Extract the cloud instance id from a Kubernetes node providerID.
+
+    EKS emits `aws:///<availability-zone>/<instance-id>`, and some configurations omit
+    the zone segment, giving `aws:///<instance-id>`. Both are handled by taking the
+    final path segment.
+
+    Returns None for a missing providerID or a non-AWS provider, rather than guessing.
+    A wrong instance id would produce a confident but false link between an AWS change
+    and an in-cluster symptom, which is worse than no link at all.
+    """
+    if not provider_id or not provider_id.startswith("aws://"):
+        return None
+    candidate = provider_id.rstrip("/").rsplit("/", 1)[-1]
+    return candidate if candidate.startswith("i-") else None
+
+
 class KubernetesClient:
     """Client for querying the Kubernetes API directly."""
 
@@ -304,8 +321,17 @@ class KubernetesClient:
             allocatable = node.status.allocatable or {}
             capacity = node.status.capacity or {}
 
+            # provider_id is the only authoritative link between a Kubernetes node and
+            # the cloud instance backing it. On EKS it looks like
+            # "aws:///eu-central-1a/i-0abc123def456". Without it, an AWS resource change
+            # cannot be connected to an in-cluster symptom by anything better than
+            # "happened around the same time".
+            provider_id = node.spec.provider_id if node.spec else None
+
             nodes.append({
                 "name": node.metadata.name,
+                "provider_id": provider_id,
+                "instance_id": _instance_id_from_provider_id(provider_id),
                 "ready": conditions.get("Ready", {}).get("status") == "True",
                 "memory_pressure": conditions.get("MemoryPressure", {}).get("status") == "True",
                 "disk_pressure": conditions.get("DiskPressure", {}).get("status") == "True",

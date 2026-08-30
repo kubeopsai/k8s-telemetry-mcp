@@ -13,9 +13,7 @@ from k8s_telemetry_mcp.tools.cloudtrail import CloudTrailClient
 from k8s_telemetry_mcp.tools.cloudwatch import CloudWatchClient
 from k8s_telemetry_mcp.tools.database import DatabaseInsightsClient
 from k8s_telemetry_mcp.tools.datadog import DatadogClient
-from k8s_telemetry_mcp.tools.ec2 import EC2Client
 from k8s_telemetry_mcp.tools.ecr import ECRClient
-from k8s_telemetry_mcp.tools.ecs import ECSClient
 from k8s_telemetry_mcp.tools.format import (
     fmt_analyze_logs,
     fmt_build_incident_timeline,
@@ -26,7 +24,6 @@ from k8s_telemetry_mcp.tools.format import (
     fmt_recent_deployments,
 )
 from k8s_telemetry_mcp.tools.kubernetes import KubernetesClient
-from k8s_telemetry_mcp.tools.lambda_ import LambdaClient
 from k8s_telemetry_mcp.tools.loki import LokiClient
 from k8s_telemetry_mcp.tools.prometheus import PrometheusClient
 from k8s_telemetry_mcp.tools.tempo import TempoClient
@@ -40,12 +37,9 @@ __all__ = [
     "CostAnalyzer",
     "DatabaseInsightsClient",
     "DatadogClient",
-    "EC2Client",
     "ECRClient",
-    "ECSClient",
     "IncidentTimelineBuilder",
     "KubernetesClient",
-    "LambdaClient",
     "LogAnalyzer",
     "LokiClient",
     "PrometheusClient",

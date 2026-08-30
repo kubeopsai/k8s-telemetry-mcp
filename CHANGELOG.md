@@ -8,27 +8,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > Entries for 1.0.3 through 1.1.3 were never written up. The 1.2.0 entry below covers
 > the correctness work; consult `git log` for the intervening feature releases.
 
-## [1.3.0] - 2026-08-31
+## [1.2.1] - 2026-08-31
 
 ### Added
 
-- **`ECSClient`** (`tools/ecs.py`) — `get_service_deployments` returns the deployment
-  history for an ECS service (task definition revision, desired/running/pending counts,
-  rollout state and reason, timestamps). `get_stopped_tasks` returns recently stopped
-  tasks with per-container exit codes and stop reasons — the ECS equivalent of
-  Kubernetes OOMKill/CrashLoop events.
-- **`EC2Client`** (`tools/ec2.py`) — `get_instance_state_changes` returns current
-  instance state, state reason, AMI, subnet, VPC, and attached security groups.
-  `get_security_group_rules` returns current ingress/egress rules for one or more
-  security groups. Pair both with CloudTrail and AWS Config history for the full
-  before/after picture.
-- **`LambdaClient`** (`tools/lambda_.py`) — `get_function_errors` returns CloudWatch
-  metric statistics (Errors, Throttles, Duration, Invocations, ConcurrentExecutions)
-  for a function over a window, with a derived error rate. `get_function_config`
-  returns the current function configuration (runtime, handler, memory, timeout,
-  environment variable keys, layers, last-update status) without exposing environment
-  variable values.
-- All three clients exported from `tools/__init__.py`.
+- **Node-to-instance identity in `get_node_pressure`.** Each node entry now carries
+  `provider_id` (the raw Kubernetes `spec.providerID`) and `instance_id` (the EC2
+  instance id parsed from it). This is the only authoritative link between a Kubernetes
+  node and the cloud instance behind it, and without it an AWS resource change cannot be
+  connected to an in-cluster symptom by anything stronger than "happened at a similar
+  time". Uses the `nodes` read permission the ClusterRole already grants — no RBAC
+  change and no new tool, so the tool count remains 23.
+
+### Removed
+
+- **`ECSClient`, `EC2Client` and `LambdaClient` (`tools/ecs.py`, `tools/ec2.py`,
+  `tools/lambda_.py`).** These were added, documented under an unreleased 1.3.0 heading,
+  and then left on disk after the decision to revert them. They were registered as MCP
+  tools nowhere, covered by no test, and exported from `tools/__init__.py`, so the
+  package advertised a public API that could not be reached through the server and had
+  never been exercised. The reasoning for not shipping them: CloudTrail already records
+  every mutating API call regardless of service, and `get_configuration_history` is
+  generic over `resource_type`, so these clients added only *symptom* sources at the cost
+  of three clients, wider IAM, and a tool surface that shifts the product from
+  Kubernetes-focused to generically AWS — which the in-cluster Helm deployment model does
+  not fit. If they return, each should be justified by the specific symptom it surfaces
+  (Lambda throttles, ECS stopped-task reasons, EC2 status-check failures).
 
 ## [1.2.0] - 2026-08-30
 
