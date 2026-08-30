@@ -260,7 +260,7 @@ That's exactly what [Promtops Agent](https://kubeopsai.net) does.
 
 ## 🤖 Promtops Agent — Automated Incident Response
 
-Promtops hooks into your Alertmanager webhooks. When an alert fires at 3 AM, it runs this diagnostic engine across all 23 tools and posts a complete root-cause analysis to your Slack incident channel — **before PagerDuty even wakes your engineer up.**
+Promtops hooks into your Alertmanager webhooks. When an alert fires at 3 AM, it investigates using 18 of these collectors and posts a root-cause analysis to your Slack incident channel — **before PagerDuty even wakes your engineer up.**
 
 > **Read-only by design.** The agent investigates and explains. Your engineer makes the call and runs the fix. This is exactly why security teams approve it in 5 minutes instead of 6 months.
 
