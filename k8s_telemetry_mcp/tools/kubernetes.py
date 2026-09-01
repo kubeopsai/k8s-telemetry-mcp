@@ -393,6 +393,15 @@ class KubernetesClient:
                 creation_time = creation_time.replace(tzinfo=UTC)
 
             if latest_condition_time or (creation_time and creation_time > cutoff):
+                # The Deployment controller writes this annotation on every rollout —
+                # no extra API call needed, unlike walking to the owning ReplicaSet.
+                # It gives a rollout an identity beyond "some timestamp and an image
+                # tag", which is what a reviewer actually needs to tell one rollout
+                # from another when a Deployment was updated more than once in a
+                # window.
+                annotations = dep.metadata.annotations or {}
+                revision = annotations.get("deployment.kubernetes.io/revision")
+
                 recent.append({
                     "name": dep.metadata.name,
                     "namespace": namespace,
@@ -400,6 +409,7 @@ class KubernetesClient:
                     "ready_replicas": dep.status.ready_replicas,
                     "updated_replicas": dep.status.updated_replicas,
                     "image": dep.spec.template.spec.containers[0].image if dep.spec.template.spec.containers else None,
+                    "revision": revision,
                     "last_updated": latest_condition_time.isoformat() if latest_condition_time else None,
                     "created_at": creation_time.isoformat() if creation_time else None,
                     "conditions": [

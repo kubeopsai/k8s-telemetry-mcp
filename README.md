@@ -254,13 +254,13 @@ In the incident review, you remember Tuesday. You open the GitHub README and scr
 
 **What if the tool ran itself when the alert fired?**
 
-That's exactly what [Promtops Agent](https://kubeopsai.net) does.
+That's exactly what [KubeOpsAI Agent](https://kubeopsai.net) does.
 
 ---
 
-## 🤖 Promtops Agent — Automated Incident Response
+## 🤖 KubeOpsAI Agent — Automated Incident Response
 
-Promtops hooks into your Alertmanager webhooks. When an alert fires at 3 AM, it investigates using 18 of these collectors and posts a root-cause analysis to your Slack incident channel — **before PagerDuty even wakes your engineer up.**
+KubeOpsAI hooks into your Alertmanager webhooks. When an alert fires at 3 AM, it investigates using 18 of these collectors and posts a root-cause analysis to your Slack incident channel — **before PagerDuty even wakes your engineer up.**
 
 > **Read-only by design.** The agent investigates and explains. Your engineer makes the call and runs the fix. This is exactly why security teams approve it in 5 minutes instead of 6 months.
 
@@ -268,7 +268,7 @@ Promtops hooks into your Alertmanager webhooks. When an alert fires at 3 AM, it 
 Alerting fires at 3:14 AM
         │
         ▼
-  Promtops Agent
+  KubeOpsAI Agent
   ├── get_k8s_events      → OOMKilled × 3 in 10 min
   ├── query_pod_logs      → cache.put() called 12,000×/min
   ├── get_recent_deployments → checkout-api v2.4.1 at 03:00 UTC
@@ -288,7 +288,7 @@ Alerting fires at 3:14 AM
 - Runs inside your cluster — your data never leaves your VPC
 - Bring your own LLM key (AWS Bedrock, Anthropic, OpenAI)
 - A separate commercial product, sold on AWS Marketplace. This MCP server is free and
-  open source, and stays that way — Promtops builds on it.
+  open source, and stays that way — KubeOpsAI builds on it.
 
 👉 **[kubeopsai.net](https://kubeopsai.net)**
 

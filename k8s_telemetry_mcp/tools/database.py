@@ -150,9 +150,17 @@ class DatabaseInsightsClient:
         cw = self._cw_client()
         period = max(60, timeframe_minutes * 60 // 20)
 
+        # CPUCreditBalance matters on burstable (t3/t4g) instances, which is what most
+        # non-production RDS runs on. At zero credits the instance is throttled to a low
+        # baseline, so queries slow down dramatically while ReadLatency, WriteLatency and
+        # even CPUUtilization can all still read low — the degradation is invisible in
+        # every other metric here. It is absent on non-burstable classes, and a metric
+        # with no datapoints is simply omitted below, so asking for it costs nothing.
         metric_names = ["DatabaseConnections", "ReadLatency", "WriteLatency",
-                        "CPUUtilization", "FreeableMemory", "ReadIOPS", "WriteIOPS"]
+                        "CPUUtilization", "FreeableMemory", "ReadIOPS", "WriteIOPS",
+                        "CPUCreditBalance"]
         metrics: dict[str, Any] = {}
+        errors: dict[str, str] = {}
         for metric_name in metric_names:
             try:
                 resp = await self._run(
@@ -171,10 +179,15 @@ class DatabaseInsightsClient:
                         "average": round(dps[-1]["Average"], 4),
                         "maximum": round(dps[-1]["Maximum"], 4),
                     }
-            except ClientError:
-                pass
+            except ClientError as e:
+                # A denied/throttled call on one metric must not look identical to a
+                # metric with genuinely no datapoints in range — both previously
+                # vanished silently from `metrics`, which is exactly the "no data
+                # returned" vs "nothing happened" conflation this package fixed for
+                # CloudTrail and AWS Config but had not yet fixed here.
+                errors[metric_name] = f"{e.response['Error']['Code']}: {e.response['Error']['Message']}"
 
-        return {
+        result: dict[str, Any] = {
             "warning": warning,
             "db_identifier": db_identifier,
             "engine": engine,
@@ -182,6 +195,9 @@ class DatabaseInsightsClient:
             "time_window_minutes": timeframe_minutes,
             "metrics": metrics,
         }
+        if errors:
+            result["errors"] = errors
+        return result
 
     async def _elasticache_metrics(
         self, cluster_id: str, start_time: datetime, end_time: datetime
@@ -195,6 +211,7 @@ class DatabaseInsightsClient:
                         "CurrItems", "BytesUsedForCache", "CPUUtilization",
                         "GetTypeCmds", "SetTypeCmds", "Evictions"]
         metrics: dict[str, Any] = {}
+        errors: dict[str, str] = {}
         for metric_name in metric_names:
             try:
                 resp = await self._run(
@@ -213,8 +230,8 @@ class DatabaseInsightsClient:
                         "average": round(dps[-1]["Average"], 4),
                         "sum": round(dps[-1]["Sum"], 4),
                     }
-            except ClientError:
-                pass
+            except ClientError as e:
+                errors[metric_name] = f"{e.response['Error']['Code']}: {e.response['Error']['Message']}"
 
         hit_rate = None
         if "CacheHits" in metrics and "CacheMisses" in metrics:
@@ -223,7 +240,7 @@ class DatabaseInsightsClient:
             total = hits + misses
             hit_rate = round(hits / total, 4) if total > 0 else None
 
-        return {
+        result: dict[str, Any] = {
             "cluster_id": cluster_id,
             "db_type": "elasticache",
             "data_source": "cloudwatch",
@@ -231,3 +248,6 @@ class DatabaseInsightsClient:
             "cache_hit_rate": hit_rate,
             "metrics": metrics,
         }
+        if errors:
+            result["errors"] = errors
+        return result

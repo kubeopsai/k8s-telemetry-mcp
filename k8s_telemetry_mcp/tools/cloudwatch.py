@@ -122,6 +122,7 @@ class CloudWatchClient:
         metric_name, unit = metric_map[metric_type]
         client = self._metrics_client()
 
+        error: str | None = None
         try:
             resp = await self._run(
                 client.get_metric_statistics,
@@ -146,16 +147,28 @@ class CloudWatchClient:
                 }
                 for dp in datapoints
             ]
-        except ClientError:
+        except ClientError as e:
+            # A denied/throttled call must not look identical to "no datapoints in
+            # range" — the same failure mode already fixed for CloudTrail and AWS
+            # Config elsewhere in this package. `results` stays empty for backward
+            # compatibility; the new `error` key is what lets a caller tell the two
+            # apart instead of silently reading zero data as "nothing happened".
             results = []
+            error = f"{e.response['Error']['Code']}: {e.response['Error']['Message']}"
 
-        return {"metric_type": metric_type, "pod": pod_name, "namespace": namespace, "results": results}
+        payload: dict[str, Any] = {
+            "metric_type": metric_type, "pod": pod_name, "namespace": namespace, "results": results,
+        }
+        if error:
+            payload["error"] = error
+        return payload
 
     async def get_cluster_health(self) -> dict[str, Any]:
         """Get cluster health from CloudWatch Container Insights."""
         end_time = datetime.now(UTC)
         start_time = end_time - timedelta(minutes=10)
         client = self._metrics_client()
+        errors: dict[str, str] = {}
 
         async def _get(metric_name: str) -> float | None:
             try:
@@ -171,7 +184,11 @@ class CloudWatchClient:
                 )
                 dps = resp.get("Datapoints", [])
                 return dps[-1]["Average"] if dps else None
-            except ClientError:
+            except ClientError as e:
+                # Distinguish "the call failed" from "the call succeeded with no
+                # datapoints" — both previously returned None here, so a permission
+                # or throttling error on one metric was invisible to the caller.
+                errors[metric_name] = f"{e.response['Error']['Code']}: {e.response['Error']['Message']}"
                 return None
 
         node_count = await _get("cluster_node_count")
@@ -179,7 +196,7 @@ class CloudWatchClient:
         cpu_util = await _get("node_cpu_utilization")
         mem_util = await _get("node_memory_utilization")
 
-        return {
+        result: dict[str, Any] = {
             "node_count": int(node_count) if node_count is not None else None,
             "pod_count": int(pod_count) if pod_count is not None else None,
             "running_pods": int(pod_count) if pod_count is not None else None,
@@ -189,6 +206,9 @@ class CloudWatchClient:
             "memory_utilization": round(mem_util / 100, 3) if mem_util is not None else None,
             "backend": "cloudwatch",
         }
+        if errors:
+            result["errors"] = errors
+        return result
 
     async def query_raw(self, query: str, start_time: datetime | None = None, end_time: datetime | None = None) -> list[dict[str, Any]]:
         """Execute a raw CloudWatch Logs Insights query."""

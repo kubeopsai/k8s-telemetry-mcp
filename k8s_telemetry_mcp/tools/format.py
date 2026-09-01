@@ -65,11 +65,12 @@ def fmt_recent_deployments(result: dict) -> str:
     for d in deployments:
         name = d.get("name", "unknown")
         image = d.get("image") or d.get("new_image", "")
+        revision = d.get("revision")
         ts = d.get("timestamp") or d.get("last_updated", "")
         ready = d.get("ready_replicas", "?")
         desired = d.get("desired_replicas", "?")
         status = "✅" if ready == desired else "⚠️"
-        lines.append(f"{status} **{name}**")
+        lines.append(f"{status} **{name}**" + (f" (revision {revision})" if revision else ""))
         if image:
             lines.append(f"   Image: `{image}`")
         if ts:

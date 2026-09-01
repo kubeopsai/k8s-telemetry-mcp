@@ -8,6 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > Entries for 1.0.3 through 1.1.3 were never written up. The 1.2.0 entry below covers
 > the correctness work; consult `git log` for the intervening feature releases.
 
+## [1.2.6] - 2026-09-01
+
+### Fixed
+
+- **A denied or throttled CloudWatch metric call was indistinguishable from a metric with
+  genuinely no datapoints in range.** Both silently produced an empty/missing entry, which
+  is the same "no data returned" vs "nothing happened" conflation already fixed for
+  CloudTrail and AWS Config in earlier releases, just not yet fixed for CloudWatch.
+  `get_pod_metrics`, `get_cluster_health`, and the RDS/ElastiCache CloudWatch fallback now
+  record an `error` (or `errors`, per-metric) key alongside `metrics` when any call fails,
+  instead of leaving that metric out with no explanation.
+- **RDS symptom detection had no way to see a burstable instance throttled to its
+  baseline.** `CPUCreditBalance` is now requested alongside the existing RDS CloudWatch
+  metrics. Confirmed live against a real `db.t4g.micro` under sustained load: query
+  latency degraded from ~100ms to 5–12 seconds while `ReadLatency`, `WriteLatency` and even
+  `CPUUtilization` all continued to read low — `CPUCreditBalance` was the only metric that
+  showed the instance was in trouble. Absent on non-burstable instance classes, where it
+  is simply omitted rather than reported as an error.
+- **`get_recent_deployments` gave every rollout the same identity: a timestamp and an
+  image tag.** When a Deployment is updated more than once inside the reconstruction
+  window, two different rollouts became indistinguishable in the report. The Deployment
+  controller's own `deployment.kubernetes.io/revision` annotation is now surfaced as
+  `revision` on each entry — no extra API call, since Kubernetes already writes it on
+  every rollout — and `fmt_recent_deployments` renders it alongside the name.
+- Renamed `Promtops` to `KubeOpsAI` throughout the documentation (`README.md`,
+  `CHANGELOG.md`, `SUPPORT.md`, `docs/DEPLOYMENT.md`) to match the product's actual name.
+  `SUPPORT.md` also no longer describes paid tiers and a response-time SLA that applied to
+  a commercial version of this server that does not exist — this project is free,
+  open-source and community-support only; the commercial product built on it is a
+  separate offering, linked but not merged in.
+
 ## [1.2.5] - 2026-08-30
 
 ### Fixed
@@ -18,7 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   readiness-probe event never appeared in a report even though the pod, node and AWS
   side of the same incident all did. The tool's own normalizer wrote `last_timestamp`
   and a nested `involved_object.name`/`involved_object.kind`; the real Kubernetes events
-  API (and every downstream reader, in this repo and in Promtops) expected `last_time`
+  API (and every downstream reader, in this repo and in KubeOpsAI) expected `last_time`
   and flat `object_name`/`object_kind`. This went undetected because the test fixtures
   for `get_events` were written to match the same wrong shape as the buggy code, so the
   tests passed while the feature never worked. Fixed the normalizer to emit the real
@@ -29,7 +60,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   event now appears in the rendered report with its real UID as the evidence reference.
 
 - **The `PHONE` sanitizer pattern redacted EKS's own auto-generated resource name
-  suffixes.** `eks-cluster-sg-promtops-topology-test-1863340737` became
+  suffixes.** `eks-cluster-sg-kubeopsai-topology-test-1863340737` became
   `...-[REDACTED_PHONE]` because the pattern matched any bare run of 10 digits with all
   separators optional, and EKS appends a 10-digit numeric suffix to generated names.
   Fixed to require at least one delimiter between digit groups, so a real phone number
@@ -48,7 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tell a security group id from an RDS instance id without already being told the type.
   A new `resource_details` field carries `{resource_type, resource_name}` pairs; the
   existing `resources` field is unchanged for backward compatibility. This is what lets
-  Promtops discover which AWS resources to deepen an AWS Config lookup on automatically,
+  KubeOpsAI discover which AWS resources to deepen an AWS Config lookup on automatically,
   without the caller already having to name them.
 
 ## [1.2.3] - 2026-08-30
@@ -177,7 +208,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   maintains a heartbeat file that the health probes check.
 - `KubernetesClient.get_pod_status()` — pod phase, conditions and container states.
   Answers "is the dependency this service cannot reach actually running?". Moved here
-  from promtops, where it had been implemented against a non-existent attribute and
+  from kubeopsai, where it had been implemented against a non-existent attribute and
   could never succeed. Requires `get,list` on `pods`, which is beyond the ClusterRole
   this chart installs by default.
 - `sanitize_structure()` for arbitrarily nested payloads.

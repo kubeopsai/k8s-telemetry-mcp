@@ -2,8 +2,8 @@ apiVersion: v2
 name: k8s-telemetry-mcp
 description: Kubernetes Telemetry MCP Server - Connect LLMs to your cluster's observability stack
 type: application
-version: 1.2.5
-appVersion: "1.2.5"
+version: 1.2.6
+appVersion: "1.2.6"
 keywords:
   - mcp
   - kubernetes
@@ -17,4 +17,4 @@ keywords:
 home: https://github.com/kubeopsai/k8s-telemetry-mcp
 maintainers:
   - name: KubeOpsAI Team
-    email: kubeopsai@gmail.com
+    email: support@kubeopsai.net

@@ -67,14 +67,14 @@ class TestPrivateIpVsCidrNotation:
 
     def test_a_config_item_ip_range_field_is_not_corrupted(self):
         """The exact shape AWS Config returns for a security group rule's source range."""
-        payload = {"ipv4Ranges": [{"cidrIp": "10.0.0.0/8", "description": "promtops-live-test"}]}
+        payload = {"ipv4Ranges": [{"cidrIp": "10.0.0.0/8", "description": "kubeopsai-live-test"}]}
         result = sanitize_structure(payload)
         assert result["ipv4Ranges"][0]["cidrIp"] == "10.0.0.0/8"
 
 
 class TestPhoneNumberVsResourceIdentifier:
     """Found live on a real EKS cluster: the auto-generated security group name
-    'eks-cluster-sg-promtops-topology-test-1863340737' was redacted to
+    'eks-cluster-sg-kubeopsai-topology-test-1863340737' was redacted to
     '...-[REDACTED_PHONE]' because its bare 10-digit numeric suffix matched a phone
     pattern whose separators were all optional — meaning it matched any 10 consecutive
     digits with no formatting required at all. AWS and Kubernetes resource names,
@@ -83,7 +83,7 @@ class TestPhoneNumberVsResourceIdentifier:
     one delimiter."""
 
     def test_a_bare_resource_suffix_is_not_redacted(self):
-        text = "eks-cluster-sg-promtops-topology-test-1863340737"
+        text = "eks-cluster-sg-kubeopsai-topology-test-1863340737"
         result = sanitize(text)
         assert "1863340737" in result
         assert "REDACTED" not in result

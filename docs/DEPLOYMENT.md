@@ -73,7 +73,7 @@ Earlier versions of this page documented `MCP_AWS_MARKETPLACE_PRODUCT_CODE` and
 sets them. If you have them in a values file, delete them.
 
 The paid product built on this server is
-[Promtops](https://github.com/kubeopsai/promtops-agent), which is sold on AWS Marketplace
+[KubeOpsAI](https://github.com/kubeopsai/kubeopsai-agent), which is sold on AWS Marketplace
 and carries its own entitlement checks and IAM requirements.
 
 ### Resource Limits

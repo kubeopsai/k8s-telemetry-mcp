@@ -1,6 +1,6 @@
 """Tests for KubernetesClient.get_pod_status.
 
-This method was moved here from promtops, where it had been reimplemented against
+This method was moved here from kubeopsai, where it had been reimplemented against
 `_k8s._api_client` — an attribute KubernetesClient does not define. Every call raised
 AttributeError before reaching its own error handler, so the model received a raw
 Python error string from the tool the system prompt told it to use for dependency
@@ -426,3 +426,92 @@ class TestNodePressureExposesInstanceIdentity:
         assert result["not_ready_count"] == 0
         for key in ("allocatable_cpu", "capacity_memory", "memory_pressure", "conditions"):
             assert key in result["all_nodes"][0]
+
+
+def _deployment(
+    name="checkout-api",
+    image="checkout:v2.4.1",
+    revision="7",
+    annotations="use-default",
+    condition_update_minutes_ago=5,
+    created_minutes_ago=120,
+):
+    """Mirrors the real kubernetes-client V1Deployment shape.
+
+    `deployment.kubernetes.io/revision` is written by the Deployment controller on
+    every rollout — it is metadata on the Deployment itself, not on a ReplicaSet, so
+    reading it costs no extra API call and needs no `replicasets` RBAC.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    now = datetime.now(UTC)
+    ann = {"deployment.kubernetes.io/revision": revision} if annotations == "use-default" else annotations
+
+    return SimpleNamespace(
+        metadata=SimpleNamespace(
+            name=name,
+            annotations=ann,
+            creation_timestamp=now - timedelta(minutes=created_minutes_ago),
+        ),
+        spec=SimpleNamespace(
+            replicas=3,
+            template=SimpleNamespace(spec=SimpleNamespace(
+                containers=[SimpleNamespace(image=image)] if image else [],
+            )),
+        ),
+        status=SimpleNamespace(
+            ready_replicas=3,
+            updated_replicas=3,
+            conditions=[SimpleNamespace(
+                type="Available", status="True", reason="MinimumReplicasAvailable",
+                last_update_time=now - timedelta(minutes=condition_update_minutes_ago),
+                message=None,
+            )],
+        ),
+    )
+
+
+class TestGetRecentDeploymentsExposesRevision:
+    """The revision annotation gives a rollout an identity beyond "some timestamp and
+    an image tag" — the only way to tell two rollouts of the same Deployment apart
+    when a window contains more than one."""
+
+    @staticmethod
+    def _client_with(deployments):
+        client = KubernetesClient.__new__(KubernetesClient)
+        client._apps = MagicMock()
+        client._apps.list_namespaced_deployment = MagicMock(
+            return_value=SimpleNamespace(items=deployments)
+        )
+
+        async def _run(fn, *args, **kwargs):
+            return fn(*args, **kwargs)
+
+        client._run = _run
+        return client
+
+    async def test_revision_annotation_is_exposed(self):
+        client = self._client_with([_deployment(revision="7")])
+        result = await client.get_recent_deployments(namespace="prod", timeframe_minutes=60)
+        assert result["deployments"][0]["revision"] == "7"
+
+    async def test_a_deployment_with_no_annotations_reports_none_not_an_error(self):
+        client = self._client_with([_deployment(annotations={})])
+        result = await client.get_recent_deployments(namespace="prod", timeframe_minutes=60)
+        assert result["deployments"][0]["revision"] is None
+
+    async def test_annotations_being_none_entirely_reports_none_not_an_error(self):
+        """A real Deployment can have metadata.annotations = None, not just {}."""
+        client = self._client_with([_deployment(annotations=None)])
+        result = await client.get_recent_deployments(namespace="prod", timeframe_minutes=60)
+        assert result["deployments"][0]["revision"] is None
+
+    async def test_existing_fields_are_unchanged(self):
+        """Guard against the addition altering the shape callers already depend on."""
+        client = self._client_with([_deployment()])
+        result = await client.get_recent_deployments(namespace="prod", timeframe_minutes=60)
+        dep = result["deployments"][0]
+        for key in ("name", "namespace", "replicas", "ready_replicas", "updated_replicas",
+                    "image", "last_updated", "created_at", "conditions"):
+            assert key in dep
+        assert dep["image"] == "checkout:v2.4.1"

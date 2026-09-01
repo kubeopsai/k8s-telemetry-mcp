@@ -15,7 +15,7 @@ here, because it is the function the live bug was found in; the others are a kno
 gap, not something this file claims to close.
 """
 
-from k8s_telemetry_mcp.tools.format import fmt_k8s_events
+from k8s_telemetry_mcp.tools.format import fmt_k8s_events, fmt_recent_deployments
 
 
 def _event(object_name="checkout-api-7d9f", object_kind="Pod", reason="Unhealthy",
@@ -94,3 +94,30 @@ class TestFmtK8sEvents:
         payload = _payload([_event(message="")])
         result = fmt_k8s_events(payload)
         assert "checkout-api-7d9f" in result
+
+
+class TestFmtRecentDeployments:
+    """Narrow, added-behaviour coverage only: the revision annotation display. The
+    rest of this formatter still has no coverage, per the module docstring above —
+    this class does not claim to close that gap."""
+
+    def _deployment(self, revision=None, **overrides):
+        base = {
+            "name": "checkout-api", "image": "checkout:v2.4.1",
+            "ready_replicas": 3, "desired_replicas": 3,
+            "last_updated": "2026-08-30T18:53:15+00:00",
+        }
+        base.update(overrides)
+        if revision is not None:
+            base["revision"] = revision
+        return base
+
+    def test_revision_is_shown_when_present(self):
+        result = fmt_recent_deployments({"namespace": "prod", "deployments": [self._deployment(revision="7")]})
+        assert "revision 7" in result
+
+    def test_no_revision_key_renders_cleanly_without_it(self):
+        """Guards backward compatibility with a payload from before this field existed."""
+        result = fmt_recent_deployments({"namespace": "prod", "deployments": [self._deployment()]})
+        assert "revision" not in result.lower()
+        assert "checkout-api" in result
